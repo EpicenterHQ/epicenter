@@ -21,6 +21,7 @@
 	import { recordingsQueries } from '#lib/queries.ts';
 	import RecordingRow from '../RecordingRow.svelte';
 	import RecordingDetail from './RecordingDetail.svelte';
+	import PageHeader from '../PageHeader.svelte';
 
 	/** How many rows render at a time; a person can have 15,000 recordings. */
 	const PAGE = 100;
@@ -80,6 +81,10 @@
 <svelte:head><title>Recordings · Whispering</title></svelte:head>
 <svelte:window onkeydown={step} />
 
+<div class="flex min-h-0 flex-1 flex-col">
+<div class="border-b px-6 pt-8 pb-5">
+	<PageHeader title="Recordings" description="Everything you have dictated, kept on this device as files you can open." />
+</div>
 <div class="flex min-h-0 flex-1">
 	<!-- The list: hidden in a narrow window while a recording is open there. -->
 	<section
@@ -158,4 +163,5 @@
 			<p class="m-auto text-sm text-muted-foreground">Choose a recording.</p>
 		{/if}
 	</div>
+</div>
 </div>

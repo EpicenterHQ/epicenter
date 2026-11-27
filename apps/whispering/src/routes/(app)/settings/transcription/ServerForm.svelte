@@ -9,7 +9,6 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { toast } from 'svelte-sonner';
@@ -24,6 +23,8 @@
 		settingsQueries,
 	} from '#lib/queries.ts';
 	import { servers } from '#lib/platform/index.ts';
+	import SettingsRow from '../SettingsRow.svelte';
+	import SettingsSection from '../SettingsSection.svelte';
 
 	// The layout read the settings before this page opened, so the form starts
 	// from what is saved.
@@ -80,77 +81,64 @@
 	}
 </script>
 
-<form class="flex flex-col gap-6" onsubmit={save} novalidate>
-	<Field.Set>
-		<Field.Legend>Transcription server</Field.Legend>
-		<Field.Description>
-			Any server with an OpenAI-compatible transcription endpoint. Each recording is sent to it
-			when you stop.
-		</Field.Description>
-		<Field.Group>
-			<Field.Field orientation="horizontal" class="flex-wrap">
-				<span class="text-sm text-muted-foreground">Fill in for:</span>
-				{#each PRESETS as preset (preset.label)}
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => {
-							baseUrl = preset.baseUrl;
-							model = preset.model ?? model;
-						}}
-					>
-						{preset.label}
-					</Button>
-				{/each}
-			</Field.Field>
-
-			<Field.Field data-invalid={urlError ? true : undefined}>
-				<Field.Label for="base-url">Server URL</Field.Label>
-				<Input
-					id="base-url"
-					type="url"
-					placeholder="https://api.openai.com/v1"
-					autocomplete="off"
-					spellcheck="false"
-					aria-invalid={urlError ? true : undefined}
-					bind:value={baseUrl}
-				/>
-				<Field.Error>{urlError}</Field.Error>
-			</Field.Field>
-
-			<Field.Field data-invalid={modelError ? true : undefined}>
-				<Field.Label for="model">Model</Field.Label>
-				<Input
-					id="model"
-					placeholder="whisper-1"
-					autocomplete="off"
-					spellcheck="false"
-					aria-invalid={modelError ? true : undefined}
-					bind:value={model}
-				/>
-				<Field.Error>{modelError}</Field.Error>
-			</Field.Field>
-
-			<Field.Field>
-				<Field.Label for="api-key">API key</Field.Label>
-				<Input
-					id="api-key"
-					type="password"
-					autocomplete="off"
-					placeholder={keySaved.data ? 'Saved; type to replace' : 'Leave blank for a local server'}
-					bind:value={key}
-				/>
-				<Field.Description>
-					Kept in {servers.keyKeptIn} for this server.
-					{#if keySaved.data}
-						<Button variant="link" size="sm" class="h-auto p-0" onclick={forgetKey}>
-							Remove the saved key
-						</Button>
-					{/if}
-				</Field.Description>
-			</Field.Field>
-		</Field.Group>
-	</Field.Set>
-
-	<Button type="submit" class="self-start" disabled={saving}>Save</Button>
+<form class="flex flex-col gap-3" onsubmit={save} novalidate>
+	<SettingsSection
+		title="Server"
+		description="Any server with an OpenAI-compatible transcription endpoint. Each recording is sent to it when you stop."
+	>
+		<SettingsRow label="Fill in for">
+			{#each PRESETS as preset (preset.label)}
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => {
+						baseUrl = preset.baseUrl;
+						model = preset.model ?? model;
+					}}
+				>
+					{preset.label}
+				</Button>
+			{/each}
+		</SettingsRow>
+		<SettingsRow label="Server URL" for="base-url" error={urlError}>
+			<Input
+				id="base-url"
+				type="url"
+				class="w-72 max-w-full"
+				placeholder="https://api.openai.com/v1"
+				autocomplete="off"
+				spellcheck="false"
+				aria-invalid={urlError ? true : undefined}
+				bind:value={baseUrl}
+			/>
+		</SettingsRow>
+		<SettingsRow label="Model" for="model" error={modelError}>
+			<Input
+				id="model"
+				class="w-72 max-w-full"
+				placeholder="whisper-1"
+				autocomplete="off"
+				spellcheck="false"
+				aria-invalid={modelError ? true : undefined}
+				bind:value={model}
+			/>
+		</SettingsRow>
+		<SettingsRow label="API key" for="api-key">
+			{#snippet description()}
+				Kept in {servers.keyKeptIn} for this server.
+				{#if keySaved.data}
+					<Button variant="link" size="sm" class="h-auto p-0" onclick={forgetKey}>Remove the saved key</Button>
+				{/if}
+			{/snippet}
+			<Input
+				id="api-key"
+				type="password"
+				class="w-72 max-w-full"
+				autocomplete="off"
+				placeholder={keySaved.data ? 'Saved; type to replace' : 'Blank for a local server'}
+				bind:value={key}
+			/>
+		</SettingsRow>
+	</SettingsSection>
+	<Button type="submit" size="sm" class="self-start" disabled={saving}>Save</Button>
 </form>

@@ -49,6 +49,7 @@ Each layer imports only from the layers below it.
 
 ```txt
 src/
+  app.css                    the shared Epicenter styles, then Whispering's own colors
   routes/                    screens: read through queries, write through mutations
     +layout.svelte           what every window shares: the stylesheet
     Pill.svelte              the floating pill, shared by its window and the preview
@@ -57,7 +58,8 @@ src/
       +layout.svelte         the sidebar frame; hands the screens the real dictation
       +page.svelte           Home: the recorder or the first run, what dictation needs, the latest take
       recordings/            the list and the reading pane, chosen by `?id=`
-      settings/<section>/    one page per settings section
+      PageHeader.svelte      a page's name and the line under it
+      settings/<section>/    one page per settings section, built of SettingsSection and SettingsRow
       preview/               development only: the screens fed a made-up dictation
   lib/
     dictation-view.ts        what a screen may know about dictation (`DictationView`)
@@ -210,6 +212,16 @@ again so the model cannot undo them.
   to it. A narrow window folds the sidebar to icons and the sections to tabs.
   Refused: every section in the sidebar, which made it read as a control
   panel, and one long settings page, which no fix can link into.
+- **Whispering keeps its own colors, the navy it had through version 7.**
+  `src/app.css` sets them over the shared theme: a deep blue page, cards a
+  step lighter, borders a faint line. Only colors differ; the components,
+  the radius and the fonts are the shared ones. Refused: the shared
+  graphite, on which this app's flat pages read as grey and unfinished.
+- **Every page opens with its name and one line about it, and a setting
+  is a row in a card.** `SettingsSection` is a heading over one card;
+  `SettingsRow` puts what a setting is on the left and its control on the
+  right, with a switch for on or off. Refused: forms of stacked fields
+  straight on the page, which gave each settings page its own shape.
 - **Home says what is wrong once, in words.** A missing setup is one line
   under the recorder, and the sidebar only marks Settings. Refused: a card,
   a status count and a summary line saying the same thing three times.

@@ -7,48 +7,42 @@
 	Only the clipboard is built; the rest shows the target.
 -->
 <script lang="ts">
-	import { Checkbox } from '@epicenter/ui/checkbox';
-	import * as Field from '@epicenter/ui/field';
-	import * as RadioGroup from '@epicenter/ui/radio-group';
+	import { Switch } from '@epicenter/ui/switch';
+	import SettingsRow from '../SettingsRow.svelte';
+	import SettingsSection from '../SettingsSection.svelte';
 </script>
 
 <svelte:head><title>Output · Whispering</title></svelte:head>
 
-<Field.Set>
-	<Field.Legend>When a take is ready</Field.Legend>
-	<RadioGroup.Root value="clipboard">
-		<Field.Field orientation="horizontal">
-			<RadioGroup.Item value="clipboard" id="to-clipboard" />
-			<Field.Label for="to-clipboard">Copy it to the clipboard</Field.Label>
-		</Field.Field>
-		<Field.Field orientation="horizontal" data-disabled>
-			<RadioGroup.Item value="cursor" id="to-cursor" disabled />
-			<Field.Content>
-				<Field.Label for="to-cursor">Paste it where I am typing</Field.Label>
-				<Field.Description>
-					Needs macOS's Accessibility permission. If a paste cannot land, the text stays on the
-					clipboard. Not built yet.
-				</Field.Description>
-			</Field.Content>
-		</Field.Field>
-	</RadioGroup.Root>
-</Field.Set>
+<SettingsSection title="When a take is ready" description="The text is always copied to the clipboard.">
+	<SettingsRow
+		label="Paste it where I am typing"
+		description="Needs macOS's Accessibility permission. If a paste cannot land, the text stays on the clipboard. Not built yet."
+		for="to-cursor"
+		disabled
+	>
+		<Switch id="to-cursor" disabled />
+	</SettingsRow>
+</SettingsSection>
 
-<Field.Set>
-	<Field.Legend>While recording</Field.Legend>
-	<Field.Group>
-		{#each [
-			{ id: 'pause-media', label: 'Pause music and video', note: 'May resume something you had paused yourself. Not built yet.' },
-			{ id: 'pill', label: 'Show the floating pill over other apps', note: 'Not built yet.' },
-			{ id: 'sounds', label: 'Play start and stop sounds', note: 'Not built yet.' },
-		] as row (row.id)}
-			<Field.Field orientation="horizontal" data-disabled>
-				<Checkbox id={row.id} disabled />
-				<Field.Content>
-					<Field.Label for={row.id}>{row.label}</Field.Label>
-					<Field.Description>{row.note}</Field.Description>
-				</Field.Content>
-			</Field.Field>
-		{/each}
-	</Field.Group>
-</Field.Set>
+<SettingsSection title="While recording">
+	<SettingsRow
+		label="Pause music and video"
+		description="May resume something you had paused yourself. Not built yet."
+		for="pause-media"
+		disabled
+	>
+		<Switch id="pause-media" disabled />
+	</SettingsRow>
+	<SettingsRow
+		label="Show the floating pill over other apps"
+		description="It shows now; turning it off is not built yet."
+		for="pill"
+		disabled
+	>
+		<Switch id="pill" checked disabled />
+	</SettingsRow>
+	<SettingsRow label="Play start and stop sounds" description="Not built yet." for="sounds" disabled>
+		<Switch id="sounds" disabled />
+	</SettingsRow>
+</SettingsSection>

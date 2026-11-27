@@ -9,7 +9,6 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import * as Field from '@epicenter/ui/field';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -17,6 +16,7 @@
 	import { toast } from 'svelte-sonner';
 	import { runMutation } from 'wellcrafted/query';
 	import { queryClient, textFilesMutations, textFilesQueries } from '#lib/queries.ts';
+	import SettingsSection from './SettingsSection.svelte';
 
 	let {
 		path,
@@ -57,21 +57,20 @@
 	}
 </script>
 
-<Field.Set>
-	<Field.Legend>{legend}</Field.Legend>
-	<Field.Description>{@render children()}</Field.Description>
-	<Field.Group>
+<SettingsSection title={legend} description={children}>
+	<div class="flex flex-col gap-3 px-4 py-3.5">
 		<Textarea
 			{rows}
 			{placeholder}
 			spellcheck="false"
+			aria-label={legend}
 			bind:value={() => draft ?? file.data ?? fallback, (text) => (draft = text)}
 		/>
 		<div class="flex gap-2">
-			<Button variant="outline" disabled={draft === undefined} onclick={save}>Save</Button>
+			<Button variant="outline" size="sm" disabled={draft === undefined} onclick={save}>Save</Button>
 			{#if fallback && (own || draft !== undefined)}
-				<Button variant="ghost" onclick={reset}>Reset to built-in</Button>
+				<Button variant="ghost" size="sm" onclick={reset}>Reset to built-in</Button>
 			{/if}
 		</div>
-	</Field.Group>
-</Field.Set>
+	</div>
+</SettingsSection>

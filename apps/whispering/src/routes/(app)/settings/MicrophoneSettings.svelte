@@ -5,7 +5,6 @@
 	its own.
 -->
 <script lang="ts">
-	import * as Field from '@epicenter/ui/field';
 	import { getDictation } from '#lib/dictation-view.ts';
 	import { recorder } from '#lib/platform/index.ts';
 	import { HEARD } from '#lib/platform/recorder/recorder.ts';
@@ -13,6 +12,8 @@
 	import { microphonesQueries, settingsQueries } from '#lib/queries.ts';
 	import LevelMeter from '../../LevelMeter.svelte';
 	import MicrophoneSelect from '../MicrophoneSelect.svelte';
+	import SettingsRow from './SettingsRow.svelte';
+	import SettingsSection from './SettingsSection.svelte';
 
 	/** The same query the list reads, for why it could not ask. */
 	const connected = createQuery(() => microphonesQueries.list());
@@ -52,22 +53,21 @@
 	});
 </script>
 
-<Field.Set>
-	<Field.Legend>Microphone</Field.Legend>
-	<Field.Field>
-		<Field.Label for="microphone">Record from</Field.Label>
-		<MicrophoneSelect id="microphone" />
-		{#if listError}
-			<Field.Error>{listError}</Field.Error>
-		{:else if dictation.take().kind !== 'idle'}
-			<Field.Description>Recording now; the level shows in the bar above.</Field.Description>
-		{:else if meterError}
-			<Field.Error>{meterError}</Field.Error>
-		{:else}
-			<LevelMeter {level} class="text-primary" />
-			<Field.Description>
-				{heard ? 'This microphone hears you.' : 'Say something: the bar should move.'}
-			</Field.Description>
+<SettingsSection title="Microphone" description="A choice is used from the next recording on.">
+	<SettingsRow label="Record from" for="microphone" error={listError}>
+		<div class="w-64 max-w-full"><MicrophoneSelect id="microphone" /></div>
+	</SettingsRow>
+	<SettingsRow
+		label="Level"
+		description={dictation.take().kind !== 'idle'
+			? 'Recording now; the level shows on Home and the pill.'
+			: heard
+				? 'This microphone hears you.'
+				: 'Say something: the bars should move.'}
+		error={meterError}
+	>
+		{#if dictation.take().kind === 'idle' && !meterError}
+			<LevelMeter {level} class="w-24 text-primary" />
 		{/if}
-	</Field.Field>
-</Field.Set>
+	</SettingsRow>
+</SettingsSection>

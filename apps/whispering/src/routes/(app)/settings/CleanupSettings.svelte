@@ -11,9 +11,8 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import { Checkbox } from '@epicenter/ui/checkbox';
-	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
+	import { Switch } from '@epicenter/ui/switch';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
@@ -23,6 +22,8 @@
 	import { servers } from '#lib/platform/index.ts';
 	import { keysMutations, queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
 	import { originOf } from '#lib/transcription-server.ts';
+	import SettingsRow from './SettingsRow.svelte';
+	import SettingsSection from './SettingsSection.svelte';
 	import TextFileEditor from './TextFileEditor.svelte';
 
 	const settings = createQuery(() => settingsQueries.read());
@@ -96,72 +97,58 @@
 	replaces what the server wrote, and <code>um -></code> with nothing after the arrow deletes it.
 </TextFileEditor>
 
-<form class="flex flex-col gap-6" onsubmit={saveModel} novalidate>
-	<Field.Set>
-		<Field.Legend>Clean up</Field.Legend>
-		<Field.Description>
-			A chat model fixes punctuation, removes filler and false starts, and keeps your words. It
-			is skipped in terminals and code editors, for fewer than four words, and when it takes too
-			long; you can always copy the original.
-		</Field.Description>
-		<Field.Group>
-			{#if saved}
-				<Field.Field orientation="horizontal">
-					<Checkbox
-						id="cleanup-on"
-						checked={enabled}
-						onCheckedChange={(checked) => setOn(checked === true)}
-					/>
-					<Field.Label for="cleanup-on">Clean up each transcript</Field.Label>
-				</Field.Field>
-			{/if}
-
-			<Field.Field data-invalid={modelError ? true : undefined}>
-				<Field.Label for="cleanup-model">Model</Field.Label>
+<form class="flex flex-col gap-3" onsubmit={saveModel} novalidate>
+	<SettingsSection
+		title="Clean up"
+		description="A chat model fixes punctuation, removes filler and false starts, and keeps your words. It is skipped for fewer than four words and when it takes too long; you can always copy the original."
+	>
+		{#if saved}
+			<SettingsRow label="Clean up each transcript" for="cleanup-on">
+				<Switch id="cleanup-on" checked={enabled} onCheckedChange={(checked) => setOn(checked)} />
+			</SettingsRow>
+		{/if}
+		<SettingsRow label="Model" for="cleanup-model" error={modelError}>
+			<Input
+				id="cleanup-model"
+				class="w-64 max-w-full"
+				placeholder="llama-3.3-70b-versatile"
+				autocomplete="off"
+				spellcheck="false"
+				aria-invalid={modelError ? true : undefined}
+				bind:value={model}
+			/>
+		</SettingsRow>
+		<SettingsRow
+			label="Server URL"
+			description="Leave blank to use the transcription server and its key."
+			for="cleanup-url"
+			error={urlError}
+		>
+			<Input
+				id="cleanup-url"
+				type="url"
+				class="w-64 max-w-full"
+				placeholder="The transcription server"
+				autocomplete="off"
+				spellcheck="false"
+				aria-invalid={urlError ? true : undefined}
+				bind:value={baseUrl}
+			/>
+		</SettingsRow>
+		{#if otherOrigin}
+			<SettingsRow label="API key" description="Kept in {servers.keyKeptIn} for this server." for="cleanup-key">
 				<Input
-					id="cleanup-model"
-					placeholder="llama-3.3-70b-versatile"
+					id="cleanup-key"
+					type="password"
+					class="w-64 max-w-full"
 					autocomplete="off"
-					spellcheck="false"
-					aria-invalid={modelError ? true : undefined}
-					bind:value={model}
+					placeholder="Blank keeps the saved key"
+					bind:value={key}
 				/>
-				<Field.Error>{modelError}</Field.Error>
-			</Field.Field>
-
-			<Field.Field data-invalid={urlError ? true : undefined}>
-				<Field.Label for="cleanup-url">Server URL</Field.Label>
-				<Input
-					id="cleanup-url"
-					type="url"
-					placeholder="The transcription server"
-					autocomplete="off"
-					spellcheck="false"
-					aria-invalid={urlError ? true : undefined}
-					bind:value={baseUrl}
-				/>
-				<Field.Description>
-					Leave blank to use the transcription server and its key.
-				</Field.Description>
-				<Field.Error>{urlError}</Field.Error>
-			</Field.Field>
-
-			{#if otherOrigin}
-				<Field.Field>
-					<Field.Label for="cleanup-key">API key</Field.Label>
-					<Input
-						id="cleanup-key"
-						type="password"
-						autocomplete="off"
-						placeholder="Leave blank to keep the saved key, or for a local server"
-						bind:value={key}
-					/>
-					<Field.Description>Kept in {servers.keyKeptIn} for this server.</Field.Description>
-				</Field.Field>
-			{/if}
-		</Field.Group>
-	</Field.Set>
-	<Button type="submit" variant="outline" class="self-start">
+			</SettingsRow>
+		{/if}
+	</SettingsSection>
+	<Button type="submit" variant="outline" size="sm" class="self-start">
 		{saved ? 'Save model' : 'Turn on cleanup'}
 	</Button>
 </form>

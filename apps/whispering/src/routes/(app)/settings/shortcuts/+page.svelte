@@ -4,27 +4,21 @@
 	Hands-free on and off. Only the first is built; it is fixed for now.
 -->
 <script lang="ts">
-	import * as Field from '@epicenter/ui/field';
+	import Key from '../../Key.svelte';
+	import SettingsRow from '../SettingsRow.svelte';
+	import SettingsSection from '../SettingsSection.svelte';
 </script>
 
 <svelte:head><title>Shortcuts · Whispering</title></svelte:head>
 
-<Field.Set>
-	<Field.Legend>Shortcuts</Field.Legend>
-	<Field.Description>These work from any app, while Whispering is open.</Field.Description>
-	<Field.Group>
-		{#each [
-			{ label: 'Start and stop', key: '⌘⇧;', note: 'Works now. Changing it is not built yet.' },
-			{ label: 'Hold to talk', key: '⌥Space', note: 'Records while the keys are held. Not built yet.' },
-			{ label: 'Hands-free on or off', key: 'None', note: 'Not built yet.' },
-		] as row (row.label)}
-			<Field.Field orientation="horizontal">
-				<Field.Content>
-					<Field.Label>{row.label}</Field.Label>
-					<Field.Description>{row.note}</Field.Description>
-				</Field.Content>
-				<kbd class="rounded-md border px-2 py-1 font-sans text-sm">{row.key}</kbd>
-			</Field.Field>
-		{/each}
-	</Field.Group>
-</Field.Set>
+<SettingsSection title="Shortcuts" description="These work from any app, while Whispering is open.">
+	<SettingsRow label="Start and stop" description="Changing it is not built yet.">
+		<Key keys="⌘⇧;" class="px-2 py-1 text-sm" />
+	</SettingsRow>
+	<SettingsRow label="Hold to talk" description="Records while the keys are held. Not built yet." disabled>
+		<Key keys="⌥Space" class="px-2 py-1 text-sm opacity-60" />
+	</SettingsRow>
+	<SettingsRow label="Hands-free on or off" description="Not built yet." disabled>
+		<span class="text-sm text-muted-foreground">None</span>
+	</SettingsRow>
+</SettingsSection>
