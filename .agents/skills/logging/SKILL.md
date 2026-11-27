@@ -8,74 +8,61 @@ metadata:
 
 # Logging
 
-Code that does the work returns its error. It does not log and does not show
-a message. The code that owns the interaction sees the result and does what
-follows from an error. The [error-handling](../error-handling/SKILL.md) skill
-owns that path; this skill owns the record.
+A program has one place that writes its record. Nothing else logs.
 
-## Who logs
+A program is something that gets started and runs: `serve`, or a desktop
+app. Code inside it, whether an action, a feature, or a shared package, does
+one of two things with a failure:
 
-Almost nobody. Before adding a log call, check that the code is one of these:
+- **Return it** to whoever asked. The
+  [error-handling](../error-handling/SKILL.md) skill owns that path.
+- **Hand it to the program** when nobody asked: `reportError(error)`. A
+  listener that throws while others are being notified is the usual case.
+  The program's top-level handler receives it, and the work carries on.
 
-- **The top of a program.** The action runner writes one line when each run
-  ends ([run.ts](../../../packages/app/src/command/run.ts)), so an action
-  never logs its own outcome. An app's top-level error handler shows the
-  person a message and records a line they can send to the maintainer.
-- **Code with nobody to answer.** A listener that throws while others are
-  being notified, a subscription whose re-read fails, or a server that cannot
-  write its reply. There is no caller to return the error to, so the record
-  is all that is left of it.
-- **A boundary that hides the cause.** When a reply leaves out an internal
-  cause on purpose, log the cause it leaves out. `serve` answers `Threw` and
-  logs what was thrown
-  ([serve.ts](../../../packages/app/src/command/serve.ts)).
+The program creates its logger once, where it starts, and writes:
 
-Everything else returns the error to its caller.
+- one `info` line for each thing it ran. The action runner's line is the
+  model: app, action, duration, and how the run ended
+  ([run.ts](../../../packages/app/src/command/run.ts)).
+- one `warn` or `error` line for each failure that reached it. `warn` means
+  the program carried on with that work; `error` means that work was lost.
 
 ## What a line holds
 
-A name someone can search for, a message, and where it came from. Never an
-action's input or result, a transcript, or a key. The runner's line is the
-model: app, action, outcome, and duration.
-
-## How to write one
+A `defineErrors` variant, passed whole, with what went wrong as its `cause`.
+Do not write a sentence at the log call or pick an error apart by hand; the
+variant owns its message.
 
 ```ts
-const log = createLogger('epicenter/serve', stderrJsonLines);
-
-log.error(ServeError.Unanswered({ cause }));
+serveLog.error(ServeError.Unanswered({ cause }));
 ```
 
-- Log a `defineErrors` variant that the module owns, not `new Error('...')`.
-  A variant has a stable name; a sentence is worded differently each time.
-  `warn` and `error` take the variant and nothing else, and its message
-  becomes the line's message.
-- A variant that is only logged stays private to its module. Exporting it
-  publishes a name nobody imports.
-- `warn` means the code carried on. `error` means it gave up. `info` takes a
-  message and data, for an event that is not a failure, such as a run ending.
-- The first argument is the source, stamped on every line:
-  `'<package>/<module>'`, lowercase.
-- Library code never calls `console.*`.
+Never an action's input or result, a transcript, or a key. Keeping those out
+is the sink's job, so no call site has to remember it: `serve`'s sink writes
+a thrown cause as its name and message.
 
 ## Where lines go
 
-A logger is a source and a sink. A sink is a function that receives one
-event, and Wellcrafted has no global logger to configure, so the only way a
-line reaches anywhere is the sink its logger was made with.
+A sink is a function the program writes. It receives each line as an event
+and puts it wherever the program wants, in one place or several:
 
-That is what lets the program decide and not the library. A module that can
-be created more than once takes `log?: Logger` and defaults to its own; a
-module that exists once per process creates its logger at module scope. The
-default sink is the console. `serve` passes `stderrJsonLines`, and whatever
-keeps `serve` running stores the lines. A desktop app passes a sink that
-appends to a file in its own folder.
+```ts
+const log = createLogger('whispering', (event) => {
+	appendLine('whispering.log', event); // the file a person can send
+	console.error(event); // the developer console
+});
+```
 
-A message shown to a person is not a sink. Showing is a separate call by the
-code that owns the interaction: it needs a title only that code knows, and
-not every recorded failure should be shown.
+`serve` writes JSON lines to stderr
+([output.ts](../../../packages/app/src/command/output.ts)), and whatever
+keeps `serve` running stores them.
 
-The API itself (levels, the event shape, combining sinks, a sink for tests)
-is documented with the library:
+A message shown to a person is not a sink. The sink sees every line,
+including ones nobody should be shown, and it does not know the title the
+person needs. Showing is a separate call, made beside the log call by the
+code that owns the interaction.
+
+The logger's own API is documented with the library:
 [Wellcrafted's logger](https://github.com/wellcrafted-dev/wellcrafted/blob/main/docs/core/logger.mdx).
 Check a claim about it against the installed version's types.
