@@ -16,7 +16,6 @@
 	import { cn } from '@epicenter/ui/utils';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
-	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import studioMicrophone from '#lib/assets/studio-microphone.png';
 	import { getDictation } from '#lib/dictation-view.ts';
@@ -26,18 +25,23 @@
 	import MicrophoneSelect from './MicrophoneSelect.svelte';
 
 	let {
-		look = 'tile',
+		look = 'mic',
 	}: {
 		/**
 		 * Which design to draw, while the choice is open (the preview page shows
-		 * them side by side): `tile`, an icon button in a card; `mic`, the
-		 * microphone picture as that button; `stage`, the picture centred in a
-		 * lit card; `hero`, the picture centred on the page with no card.
+		 * them side by side): `mic`, the microphone picture as the button of a
+		 * compact card; `mic-glow`, the same with a glow as bright as the voice;
+		 * `glow`, the picture centred under a light that turns red and follows
+		 * the voice; `wave`, the picture centred with the level spreading out
+		 * from both sides of it.
 		 */
-		look?: 'tile' | 'mic' | 'stage' | 'hero';
+		look?: 'mic' | 'mic-glow' | 'glow' | 'wave';
 	} = $props();
 
-	const centered = $derived(look === 'stage' || look === 'hero');
+	const centered = $derived(look === 'glow' || look === 'wave');
+
+	/** How tall each bar beside the microphone may get, nearest first. */
+	const WING = [1, 0.82, 0.9, 0.62, 0.7, 0.45, 0.5, 0.3, 0.34, 0.2, 0.16, 0.1];
 
 	const dictation = getDictation();
 	const take = $derived(dictation.take());
@@ -47,6 +51,11 @@
 	const busy = $derived(take.kind === 'starting' || take.kind === 'stopping');
 	const live = $derived(take.kind === 'recording');
 	const listening = $derived(take.kind === 'idle' && handsFree.kind === 'listening');
+	/** The level as loudness from 0 to 1, on the decibel scale the level meter uses. */
+	const loud = $derived.by(() => {
+		const level = dictation.level();
+		return level > 0 ? Math.min(1, Math.max(0, 1 + (20 * Math.log10(level)) / 60)) : 0;
+	});
 </script>
 
 {#snippet stopBadge()}
@@ -62,41 +71,42 @@
 		type="button"
 		class={cn(
 			'relative flex shrink-0 items-center justify-center transition-transform hover:brightness-110 active:scale-95 disabled:opacity-60 motion-reduce:transition-none',
-			look === 'tile' && [
-				'size-16 rounded-2xl shadow-sm',
-				live ? 'bg-destructive text-white' : 'bg-primary text-primary-foreground',
-			],
-			look === 'mic' && [
-				'size-20 rounded-2xl bg-gradient-to-b from-foreground/10 to-foreground/[0.03] ring-1',
-				live ? 'ring-2 ring-destructive/70' : 'ring-foreground/10',
-			],
-			look === 'stage' && [
-				'size-32 rounded-full bg-gradient-to-b from-foreground/10 to-transparent ring-1',
-				live ? 'ring-4 ring-destructive/60' : 'ring-foreground/15',
-			],
-			look === 'hero' && ['size-36 rounded-full', live && 'bg-destructive/10 ring-8 ring-destructive/25'],
+			centered
+				? 'size-28 rounded-full'
+				: [
+						'size-20 rounded-2xl bg-gradient-to-b from-foreground/10 to-foreground/[0.03] ring-1',
+						live ? 'ring-2 ring-destructive/70' : 'ring-foreground/10',
+					],
 		)}
+		style:box-shadow={look === 'mic-glow' && live
+			? `0 0 ${12 + loud * 36}px ${loud * 10}px color-mix(in oklch, var(--destructive) ${30 + loud * 50}%, transparent)`
+			: undefined}
 		aria-label={live ? 'Stop recording' : 'Start recording'}
 		disabled={busy}
 		onclick={() => dictation.toggle()}
 	>
-		{#if look === 'tile'}
-			{#if busy}
-				<Spinner class="size-6" />
-			{:else if live}
-				<SquareIcon class="size-6 fill-current" />
-			{:else}
-				<MicIcon class="size-7" />
-			{/if}
-		{:else}
-			<img
-				src={studioMicrophone}
-				alt=""
-				class={cn('drop-shadow-lg', look === 'mic' ? 'size-14' : look === 'stage' ? 'size-24' : 'size-28')}
-			/>
-			{#if live}{@render stopBadge()}{/if}
-		{/if}
+		<img src={studioMicrophone} alt="" class={cn('drop-shadow-lg', centered ? 'size-24' : 'size-14')} />
+		{#if live && !centered}{@render stopBadge()}{/if}
 	</button>
+{/snippet}
+
+<!-- Bars that fall away from the microphone, as tall as the voice is loud. -->
+{#snippet wing(flip: boolean)}
+	<div
+		class={cn(
+			'flex h-12 flex-1 items-center gap-1',
+			flip ? 'flex-row-reverse' : 'flex-row',
+			live ? 'text-destructive' : listening ? 'text-muted-foreground' : 'text-foreground/20',
+		)}
+		aria-hidden="true"
+	>
+		{#each WING as share, i (i)}
+			<span
+				class="w-1 rounded-full bg-current transition-[height] duration-100 ease-out motion-reduce:transition-none"
+				style:height="{live || listening ? Math.max(8, share * loud * 100) : 8}%"
+			></span>
+		{/each}
+	</div>
 {/snippet}
 
 {#snippet status()}
@@ -120,7 +130,7 @@
 		{/if}
 	{:else if busy}
 		<p class={cn('flex items-center gap-2 font-semibold', centered ? 'text-2xl' : 'text-lg')}>
-			{#if look !== 'tile'}<Spinner class="size-4 text-muted-foreground" />{/if}
+			<Spinner class="size-4 text-muted-foreground" />
 			{take.kind === 'starting' ? 'Starting the microphone' : 'Saving the recording'}
 		</p>
 	{:else if listening}
@@ -139,27 +149,42 @@
 
 <section
 	class={cn(
-		'overflow-hidden rounded-xl text-card-foreground transition-shadow',
-		look !== 'hero' && 'bg-card shadow-xs ring-1 ring-foreground/10',
-		look !== 'hero' && live && 'shadow-md ring-destructive/40',
+		'relative overflow-hidden rounded-xl bg-card text-card-foreground shadow-xs ring-1 ring-foreground/10 transition-shadow',
+		live && !centered && 'shadow-md ring-destructive/40',
 	)}
 	aria-label="Recorder"
 >
 	{#if centered}
+		<!-- The light behind the microphone: blue at rest, red and as bright as the voice while recording. -->
 		<div
-			class={cn(
-				'flex flex-col items-center gap-4 px-5 pt-8 pb-6 text-center',
-				look === 'stage' &&
-					'bg-[radial-gradient(70%_90%_at_50%_0%,color-mix(in_oklch,var(--sidebar-primary)_38%,transparent),transparent)]',
-			)}
-		>
-			{@render record()}
+			class="pointer-events-none absolute inset-x-0 top-0 h-64 transition-opacity duration-150 motion-reduce:transition-none"
+			style:opacity={live ? 0.35 + loud * 0.65 : 1}
+			style:background="radial-gradient(70% 90% at 50% 0%, color-mix(in oklch, var({live
+				? '--destructive'
+				: '--sidebar-primary'}) {live ? 45 : 38}%, transparent), transparent)"
+			aria-hidden="true"
+		></div>
+		<div class="relative flex flex-col items-center gap-3 px-5 pt-7 pb-6 text-center">
+			{#if look === 'wave'}
+				<div class="flex w-full max-w-md items-center gap-4">
+					{@render wing(true)}
+					{@render record()}
+					{@render wing(false)}
+				</div>
+			{:else}
+				{@render record()}
+			{/if}
 			<div class="flex min-h-16 flex-col items-center gap-1.5" role="status">{@render status()}</div>
-			{#if (live && !dictation.silent()) || listening}
+			{#if look === 'glow' && ((live && !dictation.silent()) || listening)}
 				<LevelMeter
 					level={dictation.level()}
 					class={cn('h-8 w-40', live ? 'text-destructive' : 'text-muted-foreground')}
 				/>
+			{/if}
+			{#if live && take.kind === 'recording' && take.trigger !== 'hold'}
+				<Button variant="outline" size="sm" class="rounded-full" onclick={() => dictation.toggle()}>
+					<SquareIcon class="fill-destructive text-destructive" /> Stop
+				</Button>
 			{/if}
 		</div>
 	{:else}
@@ -175,7 +200,7 @@
 		</div>
 	{/if}
 
-	<div class={cn('flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-1.5', look === 'hero' ? 'justify-center' : 'justify-between border-t')}>
+	<div class="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t px-3 py-1.5">
 		<MicrophoneSelect compact disabled={take.kind !== 'idle'} />
 		{#if handsFree.kind !== 'unavailable'}
 			<div class="flex items-center gap-2 px-2">
