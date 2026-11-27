@@ -4,7 +4,7 @@
 	preview page shows it. It reads only `DictationView`.
 
 	It shows only while something is happening. Recording: the clock, the
-	level, Cancel and Stop; a held key shows no buttons, since letting go
+	level, Cancel and Stop; a held key shows "Release" and no buttons, since letting go
 	stops it. Hands-free: listening, with Stop. Then saving, transcribing,
 	cleaning up, and where the text went. A clean delivery steps aside after
 	a moment, because the text is its own confirmation; a fallback or a
@@ -20,7 +20,9 @@
 <script lang="ts">
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { cn } from '@epicenter/ui/utils';
+	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
 	import CheckIcon from '@lucide/svelte/icons/check';
+	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -32,7 +34,7 @@
 	const RETIRE_MS = 900;
 
 	const BUTTON =
-		'flex size-6 shrink-0 items-center justify-center rounded-full transition hover:scale-110 active:scale-95 motion-reduce:transition-none';
+		'flex size-6 shrink-0 items-center justify-center rounded-full transition duration-150 hover:scale-110 active:scale-95 motion-reduce:transition-none';
 
 	let {
 		onshownchange,
@@ -76,28 +78,32 @@
 {#if !hidden}
 	<div
 		class={cn(
-			'flex h-10 max-w-60 items-center gap-1 rounded-full border pr-2 pl-3 text-sm font-medium text-white/90 shadow-lg backdrop-blur-md select-none',
+			'flex h-10 max-w-56 items-center gap-1.5 rounded-full border px-2.5 text-[13px] font-medium text-white/90 backdrop-blur-md select-none',
 			failed ? 'border-red-500/50 bg-red-950/90' : 'border-white/10 bg-neutral-950/85',
-			wide ? 'w-60' : 'w-fit pr-3.5',
+			wide ? 'w-56' : 'w-fit pr-3.5',
 		)}
 		role="status"
 	>
 		<button
 			type="button"
-			class="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+			class="flex h-full min-w-0 flex-1 items-center gap-2.5 text-left"
 			aria-label="Open Whispering"
 			onclick={open}
 		>
 			{#if take.kind === 'recording'}
-				<span class="size-2.5 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
-				<Elapsed since={take.startedAt} class="shrink-0 tabular-nums" />
+				{#if take.trigger === 'voice'}
+					<AudioLinesIcon class="size-4 shrink-0 text-white/80" />
+				{:else}
+					<MicIcon class="size-4 shrink-0 text-white/80" />
+				{/if}
+				<Elapsed since={take.startedAt} class="shrink-0 text-white/80 tabular-nums" />
 				{#if dictation.silent()}
 					<span class="min-w-0 flex-1 truncate text-red-300">No sound</span>
 				{:else}
-					<LevelMeter level={dictation.level()} class="h-4 flex-1 text-white/80" />
+					<LevelMeter level={dictation.level()} class="h-5 flex-1 text-white/80" />
 				{/if}
 				{#if take.trigger === 'hold'}
-					<span class="shrink-0 text-xs text-white/60">Release to stop</span>
+					<span class="shrink-0 text-xs text-white/60">Release</span>
 				{/if}
 			{:else if take.kind !== 'idle'}
 				<Spinner class="text-white/70" />
@@ -109,7 +115,7 @@
 					<span class="size-2.5 shrink-0 rounded-full border-2 border-white/50" aria-hidden="true"></span>
 				{/if}
 				<span class="shrink-0 text-white/70">Listening</span>
-				<LevelMeter level={dictation.level()} class="h-4 flex-1 text-white/50" />
+				<LevelMeter level={dictation.level()} class="h-5 flex-1 text-white/50" />
 			{:else if outcome.kind === 'transcribing'}
 				<Spinner class="text-white/70" />
 				<span>{dictation.isCleaning(outcome.id) ? 'Cleaning up' : 'Transcribing'}</span>
@@ -129,7 +135,7 @@
 			{#if take.trigger !== 'voice'}
 				<button
 					type="button"
-					class={cn(BUTTON, 'bg-white/10 hover:bg-white/20')}
+					class={cn(BUTTON, 'bg-white/10 hover:bg-white/20 hover:text-white')}
 					aria-label="Cancel"
 					onclick={() => dictation.cancel()}
 				>
@@ -138,20 +144,20 @@
 			{/if}
 			<button
 				type="button"
-				class={cn(BUTTON, 'bg-red-500/70 text-white hover:bg-red-500')}
+				class={cn(BUTTON, 'bg-red-500/60 text-white hover:bg-red-500/80')}
 				aria-label={take.trigger === 'voice' ? 'Stop listening' : 'Stop'}
 				onclick={() => (take.trigger === 'voice' ? dictation.setHandsFree(false) : dictation.toggle())}
 			>
-				<SquareIcon class="size-3 fill-current" />
+				<SquareIcon class="size-3.5" />
 			</button>
 		{:else if listening && take.kind === 'idle'}
 			<button
 				type="button"
-				class={cn(BUTTON, 'bg-red-500/70 text-white hover:bg-red-500')}
+				class={cn(BUTTON, 'bg-red-500/60 text-white hover:bg-red-500/80')}
 				aria-label="Stop listening"
 				onclick={() => dictation.setHandsFree(false)}
 			>
-				<SquareIcon class="size-3 fill-current" />
+				<SquareIcon class="size-3.5" />
 			</button>
 		{/if}
 	</div>

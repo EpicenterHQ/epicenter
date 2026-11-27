@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 	import * as Sidebar from '@epicenter/ui/sidebar';
+	import FlaskConicalIcon from '@lucide/svelte/icons/flask-conical';
 	import HouseIcon from '@lucide/svelte/icons/house';
 	import ListIcon from '@lucide/svelte/icons/list';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -18,6 +19,8 @@
 		{ label: 'Home', href: '/', icon: HouseIcon },
 		{ label: 'Recordings', href: '/recordings', icon: ListIcon },
 		{ label: 'Settings', href: '/settings', icon: SettingsIcon },
+		// The preview page has no address bar to reach it from in the desktop app.
+		...(import.meta.env.DEV ? [{ label: 'Preview', href: '/preview', icon: FlaskConicalIcon }] : []),
 	];
 
 	const unmet = $derived(dictation.needs().length > 0);

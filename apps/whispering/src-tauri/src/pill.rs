@@ -1,4 +1,4 @@
-//! The floating pill's window: 240 by 40, transparent, over every app and
+//! The floating pill's window: 224 by 40, transparent, over every app and
 //! every Space, at the bottom centre of the screen with the pointer. It
 //! opens hidden at startup on the page `/pill`; that page shows or hides it
 //! through `pill_show` as the pill has something to say.
@@ -13,8 +13,8 @@ use tauri::{AppHandle, Manager, PhysicalPosition, Runtime, WebviewUrl, WebviewWi
 
 /// The window's label, which `capabilities/pill.json` selects and the page's events name.
 pub const LABEL: &str = "pill";
-/// Matches the pill's widest state (`Pill.svelte`, `max-w-60`).
-const WIDTH: f64 = 240.0;
+/// Matches the pill's widest state (`Pill.svelte`, `max-w-56`).
+const WIDTH: f64 = 224.0;
 const HEIGHT: f64 = 40.0;
 /// How far above the bottom of the screen's usable area the pill sits, clear of the Dock.
 const ABOVE_BOTTOM: f64 = 72.0;
@@ -48,6 +48,9 @@ pub fn open(app: &AppHandle) -> tauri::Result<()> {
         .style_mask(StyleMask::empty().nonactivating_panel())
         .has_shadow(false)
         .transparent(true)
+        // Rounds the panel itself to the pill's shape, so no square backing
+        // shows past the page's rounded corners.
+        .corner_radius(HEIGHT / 2.0)
         .no_activate(true)
         // A click lands on Stop even though the panel is never the active window.
         .with_window(|window| window.decorations(false).transparent(true).accept_first_mouse(true))

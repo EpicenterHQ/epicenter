@@ -8,6 +8,8 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { Checkbox } from '@epicenter/ui/checkbox';
+	import { Label } from '@epicenter/ui/label';
 	import type {
 		DictationView,
 		HandsFree,
@@ -16,6 +18,7 @@
 		Take,
 	} from '#lib/dictation-view.ts';
 	import { setDictation } from '#lib/dictation-view.ts';
+	import { pill } from '#lib/platform/index.ts';
 	import NeedsLine from '../NeedsLine.svelte';
 	import Pill from '../../Pill.svelte';
 	import RecorderPanel from '../RecorderPanel.svelte';
@@ -100,7 +103,38 @@
 		transcribe: () => {},
 		forget: () => {},
 	});
-	setDictation(viewOf(() => scene, () => pickedAt));
+	const view = viewOf(() => scene, () => pickedAt);
+	setDictation(view);
+
+	/**
+	 * In the desktop app, also send the chosen state to the real floating
+	 * pill, so its window can be judged on the real desktop. Turning it off
+	 * hides the pill; a real take sends its own state again.
+	 */
+	let mirror = $state(false);
+	$effect(() => {
+		if (!mirror) return;
+		const outcome = view.outcome();
+		pill.publish({
+			take: view.take(),
+			outcome,
+			level: view.level(),
+			silent: view.silent(),
+			handsFree: view.handsFree(),
+			keys: view.keys(),
+			cleaning: outcome.kind === 'transcribing' && view.isCleaning(outcome.id),
+		});
+		return () =>
+			pill.publish({
+				take: { kind: 'idle' },
+				outcome: { kind: 'none' },
+				level: 0,
+				silent: false,
+				handsFree: { kind: 'off' },
+				keys: view.keys(),
+				cleaning: false,
+			});
+	});
 	const HOUR = 3_600_000;
 </script>
 
@@ -121,6 +155,10 @@
 				{option.label}
 			</Button>
 		{/each}
+		<div class="ml-auto flex items-center gap-2 px-2">
+			<Checkbox id="mirror" bind:checked={mirror} />
+			<Label for="mirror" class="text-muted-foreground">Show on the floating pill (desktop app)</Label>
+		</div>
 	</div>
 
 	<div class="mx-auto grid w-full max-w-4xl gap-8 p-6 md:grid-cols-[1fr_auto]">

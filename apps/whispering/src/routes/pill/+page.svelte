@@ -1,5 +1,5 @@
 <!--
-	The floating pill's own window (`pill.rs`): 240 by 40, transparent, over
+	The floating pill's own window (`pill.rs`): 224 by 40, transparent, over
 	every app. Dictation runs in the main window, which sends what to show;
 	presses go back to it. The window shows only while the pill does.
 -->
