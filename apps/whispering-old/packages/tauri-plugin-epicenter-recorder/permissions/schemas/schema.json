@@ -319,6 +319,30 @@
           "markdownDescription": "Denies the inputs command without any pre-configured scope."
         },
         {
+          "description": "Enables the listen command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-listen",
+          "markdownDescription": "Enables the listen command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the listen command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-listen",
+          "markdownDescription": "Denies the listen command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the name_phrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-name-phrase",
+          "markdownDescription": "Enables the name_phrase command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the name_phrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-name-phrase",
+          "markdownDescription": "Denies the name_phrase command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_meter command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-meter",
@@ -355,10 +379,22 @@
           "markdownDescription": "Denies the stop command without any pre-configured scope."
         },
         {
-          "description": "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`",
+          "description": "Enables the unlisten command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlisten",
+          "markdownDescription": "Enables the unlisten command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlisten command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlisten",
+          "markdownDescription": "Denies the unlisten command without any pre-configured scope."
+        },
+        {
+          "description": "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording, and listen hands-free, recording each phrase spoken as a take.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-listen`\n- `allow-name-phrase`\n- `allow-unlisten`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`"
+          "markdownDescription": "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording, and listen hands-free, recording each phrase spoken as a take.\n#### This default permission set includes:\n\n- `allow-inputs`\n- `allow-open-meter`\n- `allow-close-meter`\n- `allow-start`\n- `allow-stop`\n- `allow-listen`\n- `allow-name-phrase`\n- `allow-unlisten`"
         }
       ]
     }

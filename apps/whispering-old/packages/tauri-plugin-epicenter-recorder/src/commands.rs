@@ -21,6 +21,7 @@ use tauri_plugin_fs::FsExt;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
+use crate::listen::ListenSignal;
 use crate::meter::OpenedMeter;
 use crate::recorder::{Input, Result, StoppedRecording};
 use crate::Recorders;
@@ -50,6 +51,33 @@ fn allowed_folder<R: Runtime>(webview: &Webview<R>, folder: &str) -> Result<Path
         )));
     }
     Ok(root)
+}
+
+/// The absolute path a new take `id` is recorded at in the folder `folder`
+/// (`allowed_folder`), with its directory made. Refused when `id` is not one
+/// plain name, or when its audio is already there.
+fn new_take<R: Runtime>(webview: &Webview<R>, folder: &str, id: &str) -> Result<PathBuf> {
+    let folder = allowed_folder(webview, folder)?;
+    if !whispering_files::is_bare_name(id) {
+        return Err(RecorderError::refused(format!(
+            "{id:?} is not a recording id: one or more of A-Z, a-z, 0-9, - and _"
+        )));
+    }
+    let audio = audio_path(id);
+    let take = whispering_files::resolve(&folder, &audio).map_err(|error| match error {
+        whispering_files::FilesError::Io { .. } => RecorderError::failed(error.to_string()),
+        _ => RecorderError::refused(error.to_string()),
+    })?;
+    // Checked here as well as at creation, so an id whose audio is there is
+    // refused before the microphone permission prompt.
+    if std::fs::symlink_metadata(&take).is_ok() {
+        return Err(RecorderError::refused(format!(
+            "a file is already at {audio}"
+        )));
+    }
+    whispering_files::make_parents(&folder, &audio)
+        .map_err(|error| RecorderError::failed(error.to_string()))?;
+    Ok(take)
 }
 
 /// The microphones connected now, each with the id to ask for it by. Opens
@@ -144,26 +172,7 @@ pub async fn start<R: Runtime>(
     // time it would record, and nobody could stop what it started.
     let page = recorders.lock().page(&owner);
 
-    let folder = allowed_folder(&webview, &folder)?;
-    if !whispering_files::is_bare_name(&id) {
-        return Err(RecorderError::refused(format!(
-            "{id:?} is not a recording id: one or more of A-Z, a-z, 0-9, - and _"
-        )));
-    }
-    let audio = audio_path(&id);
-    let take = whispering_files::resolve(&folder, &audio).map_err(|error| match error {
-        whispering_files::FilesError::Io { .. } => RecorderError::failed(error.to_string()),
-        _ => RecorderError::refused(error.to_string()),
-    })?;
-    // Checked here as well as at creation, so an id whose audio is there is
-    // refused before the microphone permission prompt.
-    if std::fs::symlink_metadata(&take).is_ok() {
-        return Err(RecorderError::refused(format!(
-            "a file is already at {audio}"
-        )));
-    }
-    whispering_files::make_parents(&folder, &audio)
-        .map_err(|error| RecorderError::failed(error.to_string()))?;
+    let take = new_take(&webview, &folder, &id)?;
 
     // Asked before any device is resolved, off the async runtime: a person
     // not yet asked answers a system prompt.
@@ -201,6 +210,61 @@ pub async fn start<R: Runtime>(
 #[specta::specta]
 pub async fn stop<R: Runtime>(webview: Webview<R>) -> Result<StoppedRecording> {
     let stopped = webview.state::<Recorders>().lock().stop(webview.label());
+    stopped
+}
+
+/// Listen hands-free on the microphone whose id is `device`, or the system
+/// default: the microphone stays open, and `signals` hears its level, each
+/// phrase starting (`speech`), and each phrase's finished take (`phrase`).
+/// Listening holds the host's one recorder slot until `unlisten`, or until
+/// this window's page reloads or the window is destroyed. Microphone access
+/// is asked for first, and a denial opens nothing.
+#[tauri::command]
+#[specta::specta]
+pub async fn listen<R: Runtime>(
+    webview: Webview<R>,
+    device: Option<String>,
+    signals: Channel<ListenSignal>,
+) -> Result<()> {
+    let app = webview.app_handle().clone();
+    let owner = webview.label().to_string();
+    let recorders = app.state::<Recorders>();
+    let page = recorders.lock().page(&owner);
+    let access = recorders.access;
+    tauri::async_runtime::spawn_blocking(access)
+        .await
+        .map_err(|error| RecorderError::failed(error.to_string()))??;
+    let mut recorder = recorders.lock();
+    if recorder.page(&owner) != page {
+        return Err(RecorderError::not_recording(
+            "the page that asked to listen has gone",
+        ));
+    }
+    recorder.listen(device.as_deref(), owner, signals)
+}
+
+/// Name the phrase this window's listener just heard start: its take is
+/// recorded at `recordings/<id>.webm` in the folder `folder`
+/// (`allowed_folder`), from half a second before the voice. `id` must be one
+/// plain name with nothing at that path. Refused `NotRecording` when no
+/// phrase is waiting for a name.
+#[tauri::command]
+#[specta::specta]
+pub async fn name_phrase<R: Runtime>(webview: Webview<R>, folder: String, id: String) -> Result<()> {
+    let take = new_take(&webview, &folder, &id)?;
+    let named = webview
+        .state::<Recorders>()
+        .lock()
+        .name_phrase(webview.label(), id, take);
+    named
+}
+
+/// Stop this window's listener and release its microphone. Answers the take
+/// it was writing, finished in place, or null between phrases.
+#[tauri::command]
+#[specta::specta]
+pub async fn unlisten<R: Runtime>(webview: Webview<R>) -> Result<Option<StoppedRecording>> {
+    let stopped = webview.state::<Recorders>().lock().unlisten(webview.label());
     stopped
 }
 

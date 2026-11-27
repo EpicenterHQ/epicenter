@@ -38,6 +38,32 @@ export const commands = {
 	 *  be written to its end is left as it is, and the answer is `Failed`.
 	 */
 	stop: () => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop")),
+	/**
+	 *  Listen hands-free on the microphone whose id is `device`, or the system
+	 *  default: the microphone stays open, and `signals` hears its level, each
+	 *  phrase starting (`speech`), and each phrase's finished take (`phrase`).
+	 *  Listening holds the host's one recorder slot until `unlisten`, or until
+	 *  this window's page reloads or the window is destroyed. Microphone access
+	 *  is asked for first, and a denial opens nothing.
+	 */
+	listen: (device: string | null, signals: Channel<ListenSignal>) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|listen", { device, signals })),
+	/**
+	 *  Name the phrase this window's listener just heard start: its take is
+	 *  recorded at `recordings/<id>.webm` in the folder `folder`
+	 *  (`allowed_folder`), from half a second before the voice. `id` must be one
+	 *  plain name with nothing at that path. Refused `NotRecording` when no
+	 *  phrase is waiting for a name.
+	 */
+	namePhrase: (folder: string, id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|name_phrase", { folder, id })),
+	/**
+	 *  Stop this window's listener and release its microphone. Answers the take
+	 *  it was writing, finished in place, or null between phrases.
+	 */
+	unlisten: () => typedError<{
+	/**  The id the page started it with. */
+	id: string,
+	durationMs: number,
+} | null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|unlisten")),
 };
 
 /* Types */
@@ -90,6 +116,20 @@ export type Input = {
 	name: string,
 	isDefault: boolean,
 };
+
+/**  What a listener tells its page over the channel it passed to `listen`. */
+export type ListenSignal =
+/**  The microphone's level since the last one, from 0 to 1. */
+{ kind: "level"; level: number | null } |
+/**  A phrase has started. The page answers with `name_phrase`. */
+{ kind: "speech" } |
+/**  A phrase ended on a pause, and its take is finished at its path. */
+{ kind: "phrase"; recording: StoppedRecording } |
+/**
+ *  The microphone, or the disk, stopped on its own, and why. Nothing more
+ *  is heard; `unlisten` answers a take that was being written.
+ */
+{ kind: "ended"; reason: EndedReason };
 
 /**
  *  What `open_meter` answers: the id to close it by, and the name of the

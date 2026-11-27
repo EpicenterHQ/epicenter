@@ -1,6 +1,6 @@
 ## Default Permission
 
-List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording.
+List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording, and listen hands-free, recording each phrase spoken as a take.
 
 #### This default permission set includes the following:
 
@@ -9,6 +9,9 @@ List the microphones and read one's level, record a take into a folder the file 
 - `allow-close-meter`
 - `allow-start`
 - `allow-stop`
+- `allow-listen`
+- `allow-name-phrase`
+- `allow-unlisten`
 
 ## Permission Table
 
@@ -67,6 +70,58 @@ Enables the inputs command without any pre-configured scope.
 <td>
 
 Denies the inputs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:allow-listen`
+
+</td>
+<td>
+
+Enables the listen command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:deny-listen`
+
+</td>
+<td>
+
+Denies the listen command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:allow-name-phrase`
+
+</td>
+<td>
+
+Enables the name_phrase command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:deny-name-phrase`
+
+</td>
+<td>
+
+Denies the name_phrase command without any pre-configured scope.
 
 </td>
 </tr>
@@ -145,6 +200,32 @@ Enables the stop command without any pre-configured scope.
 <td>
 
 Denies the stop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:allow-unlisten`
+
+</td>
+<td>
+
+Enables the unlisten command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-recorder:deny-unlisten`
+
+</td>
+<td>
+
+Denies the unlisten command without any pre-configured scope.
 
 </td>
 </tr>

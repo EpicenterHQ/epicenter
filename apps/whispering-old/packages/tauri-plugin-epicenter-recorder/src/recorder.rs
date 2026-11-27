@@ -100,6 +100,7 @@ use tauri::ipc::Channel;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
+use crate::listen::{ListenSignal, Listener};
 use crate::meter::Meter;
 use crate::opus::{OpusRecording, TO_48K};
 use crate::rate::RateConverter;
@@ -146,7 +147,7 @@ enum RecorderCmd {
 /// unsynchronized: nothing else in this process writes the file, so there is
 /// no lock between the audio path and the bytes. `S` is the file, or in a
 /// test one whose disk fills.
-struct CaptureFile<S: Storage = File> {
+pub(crate) struct CaptureFile<S: Storage = File> {
     path: PathBuf,
     /// `None` only after it is finished or dropped, so it can be consumed by
     /// value without leaving a half-alive one behind.
@@ -164,7 +165,7 @@ impl<S: Storage> CaptureFile<S> {
     /// Mono at [`RECORDING_RATE`], from samples at `device_rate`. Mono
     /// because a dictation microphone is one voice and the transcriber
     /// downmixes anyway.
-    fn open(path: PathBuf, file: S, device_rate: u32) -> Result<Self> {
+    pub(crate) fn open(path: PathBuf, file: S, device_rate: u32) -> Result<Self> {
         let converter = if device_rate == RECORDING_RATE {
             Ok(None)
         } else {
@@ -197,7 +198,7 @@ impl<S: Storage> CaptureFile<S> {
     }
 
     /// Append one callback's worth of mono PCM16 at the microphone's rate.
-    fn write(&mut self, samples: &[i16]) -> Result<()> {
+    pub(crate) fn write(&mut self, samples: &[i16]) -> Result<()> {
         let result = match self.converter.as_mut() {
             Some(converter) => converter
                 .push(samples)
@@ -261,7 +262,7 @@ impl<S: Storage> CaptureFile<S> {
     /// A capture whose writes failed is left as its whole seconds reached
     /// the file, like a take a crash cut off, and answers why. Nothing here
     /// deletes the file.
-    fn finish(mut self) -> Result<u32> {
+    pub(crate) fn finish(mut self) -> Result<u32> {
         let finished = if self.write_failed {
             Err(RecorderError::failed(
                 "the recording could not be written to the end",
@@ -375,6 +376,9 @@ pub struct Recorder {
     /// Any number may be open, beside a recording or not: a meter holds no
     /// slot and writes nothing.
     meters: HashMap<String, (String, Meter)>,
+    /// The hands-free listener and the label of the window that opened it.
+    /// It holds the slot as a recording does: one or the other, never both.
+    listener: Option<(String, Listener)>,
 }
 
 /// Ids are unique for the life of the process, so a stale `stop` never names
@@ -404,6 +408,8 @@ impl Recorder {
         *self.pages.entry(owner.to_string()).or_default() += 1;
         self.meters
             .retain(|_, (meter_owner, _)| meter_owner != owner);
+        // Dropped, which finishes the phrase it was writing.
+        self.listener.take_if(|(listener_owner, _)| listener_owner == owner);
         self.finish_owned_by(owner)
     }
 
@@ -622,6 +628,46 @@ impl Recorder {
         Ok(())
     }
 
+    /// Open the microphone and listen for phrases for the window `owner_label`
+    /// (`listen.rs`). Refused [`RecorderError::Busy`] while a recording or
+    /// another listener holds the slot.
+    pub(crate) fn listen(
+        &mut self,
+        requested_device: Option<&str>,
+        owner_label: String,
+        signals: Channel<ListenSignal>,
+    ) -> Result<()> {
+        self.require_free_slot()?;
+        let listener = Listener::open(requested_device, signals)?;
+        info!("Listening for speech: owner={owner_label}");
+        self.listener = Some((owner_label, listener));
+        Ok(())
+    }
+
+    /// The listener the window `caller_label` opened.
+    fn require_listening(&self, caller_label: &str) -> Result<&Listener> {
+        match &self.listener {
+            Some((owner, listener)) if owner == caller_label => Ok(listener),
+            _ => Err(RecorderError::not_recording(
+                "this window is not listening for speech",
+            )),
+        }
+    }
+
+    /// Name the phrase the caller's listener just heard start: its take is
+    /// written at `take`.
+    pub(crate) fn name_phrase(&self, caller_label: &str, id: String, take: PathBuf) -> Result<()> {
+        self.require_listening(caller_label)?.name_phrase(id, take)
+    }
+
+    /// Stop the caller's listener and release its microphone; answers the
+    /// take it was writing, finished in place.
+    pub(crate) fn unlisten(&mut self, caller_label: &str) -> Result<Option<StoppedRecording>> {
+        self.require_listening(caller_label)?;
+        let (_, listener) = self.listener.take().expect("listening was just verified");
+        listener.close()
+    }
+
     /// Mark the recording named by `id` as ended because its capture stopped
     /// on its own, returning its owner's channel so the host can tell it.
     ///
@@ -693,6 +739,7 @@ impl Recorder {
     pub fn shutdown(&mut self) {
         self.stopped = true;
         self.meters.clear();
+        self.listener = None;
         if let Some(active) = self.active.take() {
             if let Err(error) = finish(active) {
                 warn!("The recording held at exit could not be finalized: {error}");
@@ -737,6 +784,11 @@ impl Recorder {
     /// together is how the slot's whole policy stays legible.
     fn require_free_slot(&self) -> Result<()> {
         self.require_running()?;
+        if let Some((owner, _)) = &self.listener {
+            return Err(RecorderError::busy(format!(
+                "window '{owner}' is listening for speech"
+            )));
+        }
         let Some(active) = &self.active else {
             return Ok(());
         };
