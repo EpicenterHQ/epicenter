@@ -37,10 +37,16 @@ not create a second implementation assignment.
   and [RecordingDetail](apps/whispering/src/routes/components/RecordingDetail.svelte)
   implement the table and optional detail pane. Do not rebuild them.
 - Remaining acceptance: Use disposable recordings. Verify matching excerpts,
-  operations on selected visible rows, playback while editing, retained drafts,
+  operations on selected visible rows, playback while editing,
   keyboard focus, and detail navigation at 320 and 390 pixels. Exercise bulk
   transcription with a test endpoint and verify skips, failures, and saved
   results. Automated tests do not establish visual or listening behavior.
+- Failed saves: Keep unsaved transcript edits available to retry or discard,
+  even if the person closes and reopens details, switches recordings, or
+  resizes the window. Cover write failures and conflicts with a newer file,
+  including a save that fails as the editor closes. The
+  [current test](apps/whispering/src/lib/note-editor.test.ts) expects a known
+  failed draft to be dropped when its editor closes.
 
 ### Finish native capture interruption acceptance
 
