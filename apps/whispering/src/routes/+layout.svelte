@@ -3,7 +3,7 @@
 	`(app)/+layout.svelte`; the pill's window (`pill/`) has none.
 -->
 <script lang="ts">
-	import '@epicenter/ui/app.css';
+	import '../app.css';
 
 	let { children } = $props();
 </script>
