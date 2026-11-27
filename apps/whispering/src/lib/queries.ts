@@ -33,12 +33,14 @@ export const queryClient = new QueryClient({
 
 export const recordingsQueries = resultQueries(['recordings'], {
 	list: recordings.list,
+	size: recordings.size,
 });
 
 export const recordingsMutations = resultMutations(['recordings'], {
 	add: recordings.add,
 	setTranscript: recordings.setTranscript,
 	delete: recordings.delete,
+	deleteOlderThan: recordings.deleteOlderThan,
 });
 
 export const settingsQueries = resultQueries(['settings'], {

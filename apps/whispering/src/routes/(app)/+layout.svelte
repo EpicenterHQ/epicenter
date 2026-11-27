@@ -34,6 +34,7 @@
 	 */
 	const settingsRead = runQuery(queryClient, settingsQueries.read()).then((read) => {
 		if (read.error) toastOnError(read, 'Could not read your settings');
+		else dictation.forgetOld();
 	});
 
 	const settings = createQuery(() => settingsQueries.read(), () => queryClient);

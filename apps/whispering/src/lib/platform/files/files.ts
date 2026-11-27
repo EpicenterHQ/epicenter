@@ -1,5 +1,5 @@
 /**
- * Where Whispering keeps its files: five operations on one folder, with
+ * Where Whispering keeps its files: a few operations on one folder, with
  * one implementation for each place the page runs (`platform/index.ts` picks):
  *
  * - `tauriFiles()` on the desktop: the app's local data directory.
@@ -43,6 +43,13 @@ export type Files = {
 	remove(path: string): Promise<Result<undefined, FilesError>>;
 	/** A URL an `<audio>` element plays the file at `path` from, without reading it into the page. */
 	url(path: string): Promise<Result<string, FilesError>>;
+	/** How many bytes the files directly in `dir` hold; a directory that is not there holds none. */
+	size(dir: string): Promise<Result<number, FilesError>>;
+	/**
+	 * Show the folder in the system's file manager, or null where no file
+	 * manager can: a browser's files are the browser's own.
+	 */
+	reveal: (() => Promise<Result<undefined, FilesError>>) | null;
 };
 
 export const refused = (message: string) =>

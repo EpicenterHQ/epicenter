@@ -1,7 +1,9 @@
 //! Whispering's folder on the desktop: the app's local data directory. The
 //! page lists, writes and removes its files through `tauri-plugin-fs`, and
 //! reads them here (`files_read`), every path in one call: a person can have
-//! 15,000 notes, and one call each would be 15,000 round trips.
+//! 15,000 notes, and one call each would be 15,000 round trips. It also
+//! says how much a directory holds (`files_size`) and shows the folder in
+//! the system's file manager (`files_reveal`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -31,6 +33,44 @@ pub async fn files_read<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || read(&dir, &paths))
         .await
         .map_err(|error| error.to_string())?
+}
+
+/// How many bytes the files directly in `dir`, a directory in the folder,
+/// hold. A directory that is not there holds none.
+#[tauri::command]
+pub async fn files_size<R: Runtime>(app: AppHandle<R>, dir: String) -> Result<u64, String> {
+    if !is_plain(&dir) {
+        return Err(format!("{dir:?} is not a plain path in Whispering's folder"));
+    }
+    let dir = data_dir(&app)?.join(dir);
+    tauri::async_runtime::spawn_blocking(move || size(&dir))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// The bytes of the files directly in `dir`; a file that goes away while
+/// they are counted is left out.
+pub fn size(dir: &Path) -> Result<u64, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(format!("{} could not be read: {error}", dir.display())),
+    };
+    Ok(entries
+        .filter_map(|entry| entry.ok()?.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum())
+}
+
+/// Show Whispering's folder in the system's file manager.
+#[tauri::command]
+pub fn files_reveal<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = data_dir(&app)?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|error| format!("The folder could not be opened: {error}"))
 }
 
 /// Whether `path` is a plain path in the folder: `/`-separated parts of
@@ -88,6 +128,17 @@ mod tests {
                 ("settings.json".to_string(), "ok\u{fffd}".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn a_directory_holds_the_bytes_of_its_files_and_a_missing_one_holds_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("inner")).unwrap();
+        std::fs::write(dir.path().join("a.webm"), [0u8; 1000]).unwrap();
+        std::fs::write(dir.path().join("a.md"), "hello").unwrap();
+        std::fs::write(dir.path().join("inner/b.webm"), [0u8; 50]).unwrap();
+        assert_eq!(size(dir.path()).unwrap(), 1005);
+        assert_eq!(size(&dir.path().join("gone")).unwrap(), 0);
     }
 
     #[test]

@@ -190,5 +190,24 @@ export function opfsFiles(): Files {
 				urls.set(path, url);
 				return url;
 			}),
+
+		size: (dir) =>
+			io(
+				'measure',
+				dir,
+				async (segments) => {
+					const directory = await directoryAt(segments, false);
+					if (!directory) return 0;
+					let bytes = 0;
+					for await (const handle of directory.values()) {
+						if (handle.kind !== 'file') continue;
+						bytes += (await (handle as FileSystemFileHandle).getFile()).size;
+					}
+					return bytes;
+				},
+				{ directory: true },
+			),
+
+		reveal: null,
 	};
 }

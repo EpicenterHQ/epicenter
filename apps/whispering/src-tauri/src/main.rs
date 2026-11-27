@@ -49,6 +49,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             files::files_read,
+            files::files_size,
+            files::files_reveal,
             keys::key_set,
             keys::key_exists,
             servers::transcribe,

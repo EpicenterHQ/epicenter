@@ -111,5 +111,19 @@ export function tauriFiles(): Files {
 			io('find', path, async (segments) =>
 				convertFileSrc(await join(await appLocalDataDir(), ...segments)),
 			),
+
+		size: (dir) =>
+			io('measure', dir, () => invoke<number>('files_size', { dir }), {
+				directory: true,
+			}),
+
+		async reveal() {
+			try {
+				await invoke('files_reveal');
+				return Ok(undefined);
+			} catch (cause) {
+				return failed(extractErrorMessage(cause));
+			}
+		},
 	};
 }

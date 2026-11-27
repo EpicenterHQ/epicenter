@@ -10,6 +10,8 @@ fn main() {
     // permission that lets a window call it (`capabilities/whispering.json`).
     let manifest = tauri_build::AppManifest::new().commands(&[
         "files_read",
+        "files_size",
+        "files_reveal",
         "key_set",
         "key_exists",
         "transcribe",

@@ -19,6 +19,22 @@ export function recordedAt(id: string): Date | undefined {
 	return new Date(`${day}T${h}:${m}:${s}.${ms}Z`);
 }
 
+/**
+ * The ids among `ids` whose recording was made more than `keepDays` days
+ * before `now`. An id with no time in it is never one: nothing says it is old.
+ */
+export function olderThan(
+	ids: readonly string[],
+	keepDays: number,
+	now: Date,
+): string[] {
+	const cutoff = now.getTime() - keepDays * 86_400_000;
+	return ids.filter((id) => {
+		const at = recordedAt(id);
+		return at !== undefined && at.getTime() < cutoff;
+	});
+}
+
 /** Whether `text` holds every word of `query`, ignoring case. */
 export function matches(text: string, query: string): boolean {
 	const haystack = text.toLowerCase();

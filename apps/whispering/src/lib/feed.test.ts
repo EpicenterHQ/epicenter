@@ -6,6 +6,7 @@ import {
 	formatDuration,
 	groupByDay,
 	matches,
+	olderThan,
 	recordedAt,
 	usage,
 } from './feed';
@@ -117,4 +118,19 @@ describe('usage', () => {
 	test('has no pace before any take has text and a length', () => {
 		expect(usage([])).toEqual({ days: 0, words: 0, wordsPerMinute: undefined });
 	});
+});
+
+test('only a recording older than the days kept is old, and one with no time never is', () => {
+	const now = new Date('2026-11-27T12:00:00.000Z');
+	const ids = [
+		'2026-11-27T11-00-00-000Z-aaaaaaaa',
+		'2026-11-20T12-00-00-001Z-bbbbbbbb',
+		'2026-11-20T11-59-59-999Z-cccccccc',
+		'2025-01-01T00-00-00-000Z-dddddddd',
+		'a-name-with-no-time',
+	];
+	expect(olderThan(ids, 7, now)).toEqual([
+		'2026-11-20T11-59-59-999Z-cccccccc',
+		'2025-01-01T00-00-00-000Z-dddddddd',
+	]);
 });

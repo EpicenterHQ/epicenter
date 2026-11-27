@@ -85,7 +85,7 @@ src/
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
 src-tauri/src/
-  files.rs                   reads many files in one call
+  files.rs                   reads many files in one call, sizes a directory, opens the folder
   keys.rs                    the Keychain
   servers.rs                 transcription and cleanup requests, with the key
   local.rs                   transcribes a recording with a model on this computer
@@ -131,6 +131,12 @@ The layers answer different questions:
   up" was a missing key; and a union in the file, which would forget the
   server's address on a switch to the on-device model, though cleanup
   still needs it.
+- **Recordings are kept forever unless a number of days is chosen.**
+  `recordings.keepDays` is null or a count of days; an older recording is
+  deleted, note and audio, after the next take and when the app opens. A
+  recording's age is read from its id. Choosing fewer days asks first and
+  says how many recordings go. Refused: a limit by count ("the last 100")
+  beside the limit by days, a second mode for the same wish.
 - **The desktop API key lives in the Keychain and only Rust reads it.** The
   page sends a request and never holds the key. Refused: `localStorage` on
   the desktop, which is a plain file on disk and puts the key in the page.

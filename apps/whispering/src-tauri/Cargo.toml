@@ -29,7 +29,8 @@ tauri-plugin-epicenter-recorder = { path = "../../whispering-old/packages/tauri-
 tauri-plugin-fs = "2.7"
 # Holds the shortcuts that reach Whispering from any app (`shortcuts.rs`).
 tauri-plugin-global-shortcut = "2.4"
-# Shows a downloaded model's folder, for the transcription plugin's `reveal_model`.
+# Shows a downloaded model's folder, for the transcription plugin's `reveal_model`,
+# and Whispering's own (`files_reveal`).
 tauri-plugin-opener = "2.5"
 tauri-plugin-single-instance = "2.5"
 # Named here so `build.rs` gets its `DEP_TRANSCRIBE_CPP_*` paths; the

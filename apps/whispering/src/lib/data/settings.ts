@@ -13,6 +13,7 @@
  * 	"shortcut.toggle": "CommandOrControl+Shift+Semicolon",
  * 	"shortcut.hold": "Alt+Space",
  * 	"shortcut.handsFree": "",
+ * 	"recordings.keepDays": null,
  * 	"cleanup.enabled": false,
  * 	"cleanup.baseUrl": "",
  * 	"cleanup.model": ""
@@ -67,6 +68,17 @@ const SCHEMA = Type.Object({
 	'shortcut.hold': Type.String({ default: 'Alt+Space' }),
 	/** Turns hands-free on and off. */
 	'shortcut.handsFree': Type.String({ default: '' }),
+	/**
+	 * How many days a recording is kept; null keeps every one. An older
+	 * recording is deleted, audio and note, after the next take and when
+	 * the app opens.
+	 */
+	'recordings.keepDays': Type.Union(
+		[Type.Integer({ minimum: 1 }), Type.Null()],
+		{
+			default: null,
+		},
+	),
 	/** Whether each transcript goes to the cleanup model. Off keeps the model saved. */
 	'cleanup.enabled': Type.Boolean({ default: false }),
 	/**

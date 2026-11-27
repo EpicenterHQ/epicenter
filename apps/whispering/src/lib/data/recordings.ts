@@ -18,7 +18,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
-import { recordedAt } from '../feed';
+import { olderThan, recordedAt } from '../feed';
 import { files } from '../platform';
 
 const DIR = 'recordings';
@@ -187,6 +187,32 @@ export const recordings = {
 		if (written.error)
 			return RecordingsError.WriteFailed({ id, cause: written.error });
 		return written;
+	},
+
+	/** How many bytes the recordings hold, notes and audio together. */
+	async size() {
+		const size = await files.size(DIR);
+		if (size.error) return RecordingsError.ListFailed({ cause: size.error });
+		return size;
+	},
+
+	/**
+	 * Delete every recording made more than `keepDays` days ago, note and
+	 * audio. Answers how many went.
+	 */
+	async deleteOlderThan({ keepDays }: { keepDays: number }) {
+		const listed = await files.list(DIR);
+		if (listed.error)
+			return RecordingsError.ListFailed({ cause: listed.error });
+		const ids = new Set(
+			listed.data.flatMap((name) => parseName(name)?.id ?? []),
+		);
+		const old = olderThan([...ids], keepDays, new Date());
+		for (const id of old) {
+			const deleted = await recordings.delete({ id });
+			if (deleted.error) return deleted;
+		}
+		return Ok(old.length);
 	},
 
 	/** Delete the recording's note and audio, whichever are there. */

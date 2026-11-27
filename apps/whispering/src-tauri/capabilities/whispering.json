@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "whispering",
-	"description": "The Whispering window. It records with the native recorder, reads files through the app's own `files_read` (many in one call), and lists, writes, renames and removes them through the file system plugin. Every path is checked against the file system scope, which `main.rs` sets to the app's local data directory; no permission here names a folder. It sends a recording to the transcription server and keeps or checks the server's API key through the app's own commands, which never return the key, and writes a transcript to the clipboard. It transcribes a recording on this computer and lists, downloads, removes and shows the models that does it with. It names the global shortcuts to hold. It sends the floating pill what to show and comes forward when the pill is clicked.",
+	"description": "The Whispering window. It records with the native recorder, reads files through the app's own `files_read` (many in one call), asks how much a directory holds and shows the folder in the file manager, and lists, writes, renames and removes them through the file system plugin. Every path is checked against the file system scope, which `main.rs` sets to the app's local data directory; no permission here names a folder. It sends a recording to the transcription server and keeps or checks the server's API key through the app's own commands, which never return the key, and writes a transcript to the clipboard. It transcribes a recording on this computer and lists, downloads, removes and shows the models that does it with. It names the global shortcuts to hold. It sends the floating pill what to show and comes forward when the pill is clicked.",
 	"local": true,
 	"windows": ["main"],
 	"permissions": [
@@ -17,6 +17,8 @@
 		"fs:allow-rename",
 		"fs:allow-remove",
 		"allow-files-read",
+		"allow-files-size",
+		"allow-files-reveal",
 		"allow-key-set",
 		"allow-key-exists",
 		"allow-transcribe",

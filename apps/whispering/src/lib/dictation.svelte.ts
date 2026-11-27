@@ -174,7 +174,20 @@ function createDictation() {
 			};
 			return toastOnError(saved, 'Could not save the recording');
 		}
+		void forgetOld();
 		await transcribe(recording.id, { heardByVoice });
+	}
+
+	/** Delete the recordings older than the settings keep, if they keep a limit. */
+	async function forgetOld() {
+		const keepDays = (await currentSettings())['recordings.keepDays'];
+		if (keepDays === null) return;
+		const deleted = await runMutation(
+			queryClient,
+			recordingsMutations.deleteOlderThan,
+			{ keepDays },
+		);
+		if (deleted.error) toastOnError(deleted, 'Could not delete old recordings');
 	}
 
 	/**
@@ -474,6 +487,9 @@ function createDictation() {
 		},
 
 		cancel: () => void cancel(),
+
+		/** Delete the recordings older than the settings keep; the app's frame asks as it opens. */
+		forgetOld: () => void forgetOld(),
 
 		dismiss() {
 			outcome = { kind: 'none' };
