@@ -4,7 +4,7 @@
   </a>
   <h1 align="center">Epicenter</h1>
   <p align="center"><strong>Where one person's software lives.</strong></p>
-  <p align="center">Small apps keep what you make as plain files on one computer you control, and every device you own, and your agents, reach them there.</p>
+  <p align="center">Bring the parts of your life you want to keep into one folder on a computer you control. Use your own apps from your devices and agents, and keep the work in files you can take with you.</p>
   <p align="center"><a href="apps/whispering">Whispering</a>, desktop speech-to-text for macOS, Windows, and Linux, installs today.</p>
   <p align="center">Run it freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
@@ -50,36 +50,30 @@ For the command, MCP, and the routes serve answers, see
 ## How it works
 
 `~/Epicenter` is your Epicenter, on a computer you control and keep on. It is one
-private Git repository and one program: its root `epicenter.ts` declares the
-records and composes the apps. Records are Markdown files you can read in the
-root `data/`, each app's code is in `apps/`, and caches are in the root
-`local/`, which Git ignores. You commit code and records together when you
-choose.
+private Git repository and one program. The root `epicenter.ts` declares the
+file-backed records and composes the apps, whose code lives in `apps/`. See
+[where edits count](docs/vision.md#where-edits-count) for live records, exports,
+and backups.
 
 [Your Epicenter](packages/app/README.md#a-home) shows the files and a complete app:
 one `epicenter.ts` that declares the records, and one function per app that
 returns its actions.
 
 `epicenter serve` imports your Epicenter's program once and runs every action; restart it
-after changing code. The `epicenter` command sends each call to it. Actions
-change files; Git records them when you commit:
+after changing code. The `epicenter` command sends each call to it.
 
 ```sh
 epicenter serve
 epicenter writing add '{"body":"Fares drop in late March"}'
 ```
 
-`epicenter serve` offers every app's actions over MCP on your computer. It listens
-only there; your private network, such as Tailscale, brings your other devices
-in. Nothing syncs and no one signs in: your phone, your laptop, and your agents
-reach the one copy on your computer, and keep nothing of their own. Your
-Epicenter's optional `origin` is its backup remote. Your home can
-[schedule action calls](packages/app/README.md#scheduled-actions) while `serve` is running.
+`epicenter serve` offers actions over MCP and HTTP on your computer. Your
+private network, such as Tailscale, brings your other devices in. Your
+Epicenter can [schedule action calls](packages/app/README.md#scheduled-actions)
+while `serve` is running.
 
 Software that works without an Epicenter is an outside app: Gmail, Todoist,
-Whispering. An inside app brings its data in through actions. The author's
-Mail app pulls a copy of your mailbox to your computer, and an agent changes Gmail
-only through a proposal you apply.
+Whispering. An inside app can work with an outside app's data through actions.
 
 [The vision](docs/vision.md) | [What your Epicenter imports, and the `epicenter` command](packages/app/README.md)
 
@@ -90,11 +84,8 @@ depends on: an Epicenter is one Bun workspace, and its `package.json` names the
 version it runs. Each app is ordinary editable source.
 `serve` is one process; keep it running as you would any program.
 
-The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Zhongwen)
-run on their computer, outside this runtime source repository. Their code is in
-the Epicenter's `apps/` and their records in its root `data/`, in its one
-private Git repository. Its owner commits code and records together; actions
-make no commits. No command copies an app in or out.
+The author's inside apps (including Capture, Mail, Messages, Notes, Tasks,
+and Zhongwen) run in their own Epicenter, outside this runtime repository.
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and
 needs no Epicenter. The hosted API is retired for now.
@@ -104,19 +95,8 @@ code stays here while Whispering imports it.
 
 ## Trust boundaries
 
-Your data is on your computer, and whoever can read it there can read it.
-
-| Where | Who can read it |
-| --- | --- |
-| A computer you own | You, and whatever you let reach it: devices on your tailnet, agents you give a shell. |
-| A rented computer | You and its provider, which can read the disk, sign-in files in `local/` included. |
-| Your other devices | Only what an agent fetches while it reaches your computer. They keep no copy. |
-| Your Epicenter's private `origin` backup | Whoever hosts the backup repository can read every committed app and record. Nothing is pushed until you add an origin. |
-| A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a file in your Epicenter's `local/`, and never leaves it. |
-
-`serve` signs no one in and listens only on your computer, so which other devices
-reach it is your private network's decision. See the
-[trust model](docs/trust-model.md) for the details.
+The [trust model](docs/trust-model.md) explains who can reach your home and
+read your records, including copies on other devices and in backups.
 
 ## Repo map
 

@@ -15,7 +15,7 @@ keeps are under [Decisions](#decisions).
   package.json     "epicenter": { "port": 4747 }; this key marks the home
   epicenter.ts     the program serve imports
   .env             secrets and this computer's settings, read through process.env
-  data/            the records, plain Markdown, one folder per key
+  data/            record files, exports and attachments
   apps/            code only: each app is a function of the home's data
   .epicenter/      this computer's working state, private and ignored by Git
 ```
@@ -83,15 +83,15 @@ Visible folders are yours. `.epicenter/` is this computer's:
 
 ```txt
 .epicenter/
-  apps/<app>/   an app's sign-ins, caches and scratch files
+  apps/<app>/   an app's sign-ins, caches and other local state
   replaced/     files an upload replaced, by time and path
   tmp/          writes in progress
 ```
 
-Deleting `.epicenter/` costs you sign-ins, rebuildable caches, and the saved
-copies of files an upload replaced. Git history is untouched, so anything
-committed can still be restored. `replaced/` matters only for files Git never
-had, such as ignored recordings.
+Deleting `.epicenter/` removes app state and the saved copies of files an
+upload replaced. Some apps keep their live records there. Check what the app
+stores and how to recover it first. Git can restore anything already committed.
+[Where edits count](../../docs/vision.md#where-edits-count)
 
 `epicenter.ts` is the only file that knows where the home is. It builds each
 path and hands an app exactly what it touches, so one file shows everything
@@ -288,8 +288,8 @@ a rule here in the same pull request as the code.
   folder.** A command run in an unrelated project must not act on a home
   silently, and Bun reads `.env` from the folder serve starts in.
   Refused: an `EPICENTER_ROOT` variable; `~/Epicenter` as a default.
-- **`.epicenter/` is the one folder Epicenter owns in a home. It is private,
-  carries its own `.gitignore`, and holds no primary copy of your work.**
+- **`.epicenter/` is the one folder Epicenter owns in a home. It is private
+  and carries its own `.gitignore`.**
   The name says whose it is, where `local/` did not, since every folder in a
   home is local. Other tools keep their own dot folders, so a leading dot
   alone does not mean Epicenter.
