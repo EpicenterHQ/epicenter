@@ -1,17 +1,28 @@
 /**
- * The person's settings, in `settings.json`: the transcription server, when
- * one is set; the microphone, when they chose one over the system default;
- * and the cleanup model, when they set one up. One document, read and
- * replaced whole.
+ * The person's settings, in `settings.json`: one flat object, one key per
+ * setting, each with a default. `SCHEMA` is the one place a setting is
+ * defined; the `Settings` type and the defaults come from it.
  *
  * ```json
- * { "baseUrl": ..., "model": ..., "microphone": ...,
- *   "cleanup": { "model": ..., "baseUrl": ..., "off": true } }
+ * {
+ * 	"transcription.provider": "server",
+ * 	"transcription.local.model": "...",
+ * 	"transcription.server.baseUrl": "https://api.openai.com/v1",
+ * 	"transcription.server.model": "whisper-1",
+ * 	"microphone": null,
+ * 	"cleanup.enabled": false,
+ * 	"cleanup.baseUrl": "",
+ * 	"cleanup.model": ""
+ * }
  * ```
  *
- * Each is optional. A microphone's id means something only on the computer
- * that listed it.
+ * No key is ever missing from what `read` answers: a file that is not
+ * there, or a value of the wrong kind, reads as that key's default. So
+ * "not set up" is never a missing key; it is an empty address or model,
+ * which `transcriber` and `cleanupServer` work out.
  */
+import { type Static, Type } from 'typebox';
+import { Value } from 'typebox/value';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -19,44 +30,68 @@ import {
 } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import { files } from '../platform';
-import { readServer, type Server } from '../transcription-server';
+import type { Server } from '../transcription-server';
 
 const PATH = 'settings.json';
 
-/**
- * The chat model cleanup sends each transcript to. Its server is the
- * transcription server unless `baseUrl` names another, so a provider that
- * does both needs one address and one key. `off` is set only while the
- * person has turned cleanup off, so turning it back on loses nothing.
- */
-export type Cleanup = { model: string; baseUrl?: string; off?: true };
+const SCHEMA = Type.Object({
+	/** Which of the two below transcribes a take. */
+	'transcription.provider': Type.Union(
+		[Type.Literal('local'), Type.Literal('server')],
+		{ default: 'local' },
+	),
+	/** The on-device model's id, as the model catalog names it. Parakeet until another is chosen. */
+	'transcription.local.model': Type.String({
+		default:
+			'handy-computer/parakeet-tdt-0.6b-v3-gguf@main/parakeet-tdt-0.6b-v3-Q4_K_M.gguf',
+	}),
+	/** The OpenAI-compatible server's address; empty until one is saved. */
+	'transcription.server.baseUrl': Type.String({ default: '' }),
+	'transcription.server.model': Type.String({ default: '' }),
+	/**
+	 * The microphone's id, or null for the system default. An id means
+	 * something only on the computer that listed it.
+	 */
+	microphone: Type.Union([Type.String(), Type.Null()], { default: null }),
+	/** Whether each transcript goes to the cleanup model. Off keeps the model saved. */
+	'cleanup.enabled': Type.Boolean({ default: false }),
+	/**
+	 * The cleanup model's server. Empty means the transcription server, so
+	 * a provider that does both needs one address and one key.
+	 */
+	'cleanup.baseUrl': Type.String({ default: '' }),
+	/** The chat model cleanup sends each transcript to; empty until one is saved. */
+	'cleanup.model': Type.String({ default: '' }),
+});
 
-export type Settings = {
-	server?: Server;
-	microphone?: string;
-	cleanup?: Cleanup;
-};
+export type Settings = Static<typeof SCHEMA>;
 
-/** The server cleanup asks with `settings`, or undefined when cleanup is not set up or is off. */
-export function cleanupServer({
-	server,
-	cleanup,
-}: Settings): Server | undefined {
-	if (!cleanup || cleanup.off) return undefined;
-	const baseUrl = cleanup.baseUrl ?? server?.baseUrl;
-	return baseUrl ? { baseUrl, model: cleanup.model } : undefined;
+/** Every setting at its default: what a fresh install reads. */
+export const DEFAULTS = Value.Default(SCHEMA, {}) as Settings;
+
+/** What transcribes a take: a model on this computer, or a server. */
+export type Transcriber =
+	| { kind: 'local'; model: string }
+	| ({ kind: 'server' } & Server);
+
+/** What transcribes a take with `settings`, or undefined when the chosen provider is not filled in. */
+export function transcriber(settings: Settings): Transcriber | undefined {
+	if (settings['transcription.provider'] === 'local') {
+		const model = settings['transcription.local.model'];
+		return model ? { kind: 'local', model } : undefined;
+	}
+	const baseUrl = settings['transcription.server.baseUrl'];
+	const model = settings['transcription.server.model'];
+	return baseUrl && model ? { kind: 'server', baseUrl, model } : undefined;
 }
 
-/** The cleanup settings `json` holds, or undefined when they are missing or not readable. */
-function readCleanup(json: unknown): Cleanup | undefined {
-	if (typeof json !== 'object' || json === null) return undefined;
-	const { model, baseUrl, off } = json as Record<string, unknown>;
-	if (typeof model !== 'string' || !model.trim()) return undefined;
-	return {
-		model,
-		...(typeof baseUrl === 'string' && baseUrl.trim() ? { baseUrl } : {}),
-		...(off === true ? { off } : {}),
-	};
+/** The server cleanup asks with `settings`, or undefined when cleanup is off or not filled in. */
+export function cleanupServer(settings: Settings): Server | undefined {
+	const model = settings['cleanup.model'];
+	if (!settings['cleanup.enabled'] || !model) return undefined;
+	const baseUrl =
+		settings['cleanup.baseUrl'] || settings['transcription.server.baseUrl'];
+	return baseUrl ? { baseUrl, model } : undefined;
 }
 
 export const SettingsError = defineErrors({
@@ -71,33 +106,29 @@ export const SettingsError = defineErrors({
 });
 export type SettingsError = InferErrors<typeof SettingsError>;
 
-/** The settings `json` holds. A field that is missing or of the wrong kind is left unset. */
-function readSettings(json: unknown): Settings {
-	const microphone =
-		typeof json === 'object' &&
-		json !== null &&
-		'microphone' in json &&
-		typeof json.microphone === 'string'
-			? json.microphone
-			: undefined;
-	const cleanup =
-		typeof json === 'object' && json !== null && 'cleanup' in json
-			? readCleanup(json.cleanup)
-			: undefined;
-	return { server: readServer(json), microphone, cleanup };
+/**
+ * The settings `json` holds. Each key is checked on its own, so a missing
+ * or mistyped value costs that one setting and no other.
+ */
+export function readSettings(json: unknown): Settings {
+	const held: Record<string, unknown> =
+		typeof json === 'object' && json !== null ? { ...json } : {};
+	return Object.fromEntries(
+		Object.entries(SCHEMA.properties).map(([key, schema]) => [
+			key,
+			Value.Check(schema, held[key])
+				? held[key]
+				: DEFAULTS[key as keyof Settings],
+		]),
+	) as Settings;
 }
 
-/** `settings` as the text of `settings.json`. */
-function writeSettings({ server, microphone, cleanup }: Settings): string {
-	return `${JSON.stringify({ ...server, microphone, cleanup }, null, '\t')}\n`;
-}
-
-/** The settings kept; none set when the file is not there. */
+/** The settings kept; every default when the file is not there. */
 async function read() {
 	const read = await files.readMany([PATH]);
 	if (read.error) return SettingsError.ReadFailed({ cause: read.error });
 	const text = read.data.get(PATH);
-	if (text === undefined) return Ok<Settings>({});
+	if (text === undefined) return Ok(DEFAULTS);
 	try {
 		return Ok(readSettings(JSON.parse(text)));
 	} catch (cause) {
@@ -109,14 +140,17 @@ export const settings = {
 	read,
 
 	/**
-	 * Set the fields of `change`, keeping the rest as the file holds them
-	 * now; a field set to undefined is removed. Answers the settings written.
+	 * Set the keys of `change`, keeping the rest as the file holds them
+	 * now. Answers the settings written.
 	 */
 	async update(change: Partial<Settings>) {
 		const before = await read();
 		if (before.error) return before;
 		const next = { ...before.data, ...change };
-		const written = await files.write(PATH, writeSettings(next));
+		const written = await files.write(
+			PATH,
+			`${JSON.stringify(next, null, '\t')}\n`,
+		);
 		if (written.error)
 			return SettingsError.WriteFailed({ cause: written.error });
 		return Ok(next);

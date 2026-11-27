@@ -27,8 +27,8 @@
 	// The layout read the settings before this page opened, so the form starts
 	// from what is saved.
 	const settings = createQuery(() => settingsQueries.read());
-	let baseUrl = $state(settings.data?.server?.baseUrl ?? '');
-	let model = $state(settings.data?.server?.model ?? '');
+	let baseUrl = $state(settings.data?.['transcription.server.baseUrl'] ?? '');
+	let model = $state(settings.data?.['transcription.server.model'] ?? '');
 	let key = $state('');
 	let saving = $state(false);
 	/** Errors show once Save was pressed, and each clears as its field is fixed. */
@@ -61,7 +61,11 @@
 				return toastOnError(kept, 'Could not save the API key');
 			}
 		}
-		const saved = await runMutation(queryClient, settingsMutations.update, { server });
+		const saved = await runMutation(queryClient, settingsMutations.update, {
+			'transcription.provider': 'server',
+			'transcription.server.baseUrl': server.baseUrl,
+			'transcription.server.model': server.model,
+		});
 		saving = false;
 		if (saved.error) return toastOnError(saved, 'Could not save the settings');
 		key = '';

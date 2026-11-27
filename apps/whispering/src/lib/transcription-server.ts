@@ -4,7 +4,7 @@
  */
 import { Ok, trySync } from 'wellcrafted/result';
 
-/** What `settings.json` holds. */
+/** A server to ask and the model to ask it for. */
 export type Server = { baseUrl: string; model: string };
 
 /**
@@ -31,13 +31,4 @@ export function originOf(baseUrl: string): string | undefined {
 	if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:'))
 		return undefined;
 	return url.origin;
-}
-
-/** The server `json` describes, or undefined when it is not `{ baseUrl, model }`. */
-export function readServer(json: unknown): Server | undefined {
-	if (typeof json !== 'object' || json === null) return undefined;
-	const { baseUrl, model } = json as Record<string, unknown>;
-	if (typeof baseUrl !== 'string' || typeof model !== 'string')
-		return undefined;
-	return { baseUrl, model };
 }

@@ -47,7 +47,7 @@
 
 	async function choose(value: string) {
 		const saved = await runMutation(queryClient, settingsMutations.update, {
-			microphone: value === DEFAULT ? undefined : value,
+			microphone: value === DEFAULT ? null : value,
 		});
 		toastOnError(saved, 'Could not save the microphone');
 	}

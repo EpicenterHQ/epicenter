@@ -39,6 +39,7 @@
         "@tauri-apps/api": "catalog:",
         "@tauri-apps/plugin-clipboard-manager": "2.5.0",
         "@tauri-apps/plugin-fs": "2.7.1",
+        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

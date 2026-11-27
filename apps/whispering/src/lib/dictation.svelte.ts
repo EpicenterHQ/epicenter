@@ -23,7 +23,7 @@ import {
 	replaceWords,
 	shouldClean,
 } from './cleanup';
-import { cleanupServer } from './data/settings';
+import { cleanupServer, DEFAULTS, transcriber } from './data/settings';
 import { CLEANUP_PROMPT, DICTIONARY } from './data/text-files';
 import type { Fix, HandsFree, Outcome, Take, Trigger } from './dictation-view';
 import { copyText, recorder, servers } from './platform';
@@ -60,10 +60,10 @@ const DictationError = defineErrors({
 	}),
 });
 
-/** The settings, from the cache once they are read; none set when they cannot be read. */
+/** The settings, from the cache once they are read; the defaults when they cannot be read. */
 async function currentSettings() {
 	const { data } = await runQuery(queryClient, settingsQueries.read());
-	return data ?? {};
+	return data ?? DEFAULTS;
 }
 
 const openSettings = {
@@ -156,7 +156,8 @@ function createDictation() {
 	 */
 	async function transcribe(id: string) {
 		const settings = await currentSettings();
-		const { server } = settings;
+		const chosen = transcriber(settings);
+		const server = chosen?.kind === 'server' ? chosen : undefined;
 		if (!server) {
 			outcome = {
 				kind: 'failed',

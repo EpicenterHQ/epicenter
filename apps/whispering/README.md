@@ -24,7 +24,7 @@ keep them when space runs low (`navigator.storage.persist()`); a browser
 that says no may clear them.
 
 ```txt
-settings.json           the transcription server, the microphone, and the cleanup model
+settings.json           one key per setting: what transcribes, the microphone, cleanup
 dictionary.txt          words to spell as written, and `heard -> written` fixes
 cleanup.md              your own cleanup prompt; without it, the built-in one
 recordings/<id>.md      the note: the text you got as the body; front matter holds
@@ -104,6 +104,18 @@ The layers answer different questions:
   the file, merges, and writes.** The file is the only copy, and the query
   cache reads it. Refused: a Svelte copy of the settings kept
   beside the query cache.
+- **`settings.json` is one flat object, and every key has a default.** A
+  key reads `group.name`, as in `transcription.server.baseUrl`; a typebox
+  schema in `data/settings.ts` holds each key's type and default, and the
+  `Settings` type comes from it. A missing file or a mistyped value reads
+  as the default, so no screen handles a missing key, and one bad value
+  costs one setting. Both transcription providers stay in the file while
+  `transcription.provider` names the one in use; code asks `transcriber()`
+  and gets exactly one of the two. Refused: nested groups with optional
+  fields, where changing one value meant rewriting its group and "not set
+  up" was a missing key; and a union in the file, which would forget the
+  server's address on a switch to the on-device model, though cleanup
+  still needs it.
 - **The desktop API key lives in the Keychain and only Rust reads it.** The
   page sends a request and never holds the key. Refused: `localStorage` on
   the desktop, which is a plain file on disk and puts the key in the page.
@@ -141,9 +153,8 @@ again so the model cannot undo them.
   are added by the app, so an edited prompt cannot drop them. Refused: a
   `prompts/` folder with one marked active, which needs a picker and a state
   for an active prompt that was deleted.
-- **A saved cleanup model can be off.** `cleanup.off` is written only while
-  the person has turned it off, so a slow day does not mean retyping the
-  model. Refused: cleanup on whenever a model is saved, and a second
+- **A saved cleanup model can be off.** `cleanup.enabled` is apart from
+  `cleanup.model`, so a slow day does not mean retyping the model. Refused: cleanup on whenever a model is saved, and a second
   shortcut for a raw transcript; "Use original" after the fact covers that.
 - **The person gets the text without cleanup rather than a wrong rewrite.**
   Cleanup is skipped for fewer than four words, after its timeout, and when

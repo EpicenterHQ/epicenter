@@ -15,6 +15,7 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import { page } from '$app/state';
 	import { dictation } from '#lib/dictation.svelte.ts';
+	import { transcriber } from '#lib/data/settings.ts';
 	import { type Need, setDictation } from '#lib/dictation-view.ts';
 	import { onShortcut, pill } from '#lib/platform/index.ts';
 	import { runQuery } from 'wellcrafted/query';
@@ -37,7 +38,7 @@
 	const needs = $derived<Need[]>([
 		{
 			id: 'server',
-			met: !!settings.data?.server,
+			met: !!settings.data && transcriber(settings.data)?.kind === 'server',
 			problem: 'No transcription server is set. Recordings are kept, without text.',
 			fix: { label: 'Set up transcription', href: '/settings/transcription' },
 		},

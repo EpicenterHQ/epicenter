@@ -7,6 +7,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
 	import { createQuery } from '@tanstack/svelte-query';
+	import { transcriber } from '#lib/data/settings.ts';
 	import { getDictation } from '#lib/dictation-view.ts';
 	import { formatDuration } from '#lib/feed.ts';
 	import { recordingsQueries, settingsQueries } from '#lib/queries.ts';
@@ -21,7 +22,8 @@
 	/** Newest first; the list arrives oldest first. */
 	const recent = $derived((list.data ?? []).slice(-3).reverse());
 	const latest = $derived(recent[0]);
-	const server = $derived(settings.data?.server);
+	const chosen = $derived(settings.data && transcriber(settings.data));
+	const server = $derived(chosen?.kind === 'server' ? chosen : undefined);
 	const unmet = $derived(dictation.needs().length > 0);
 </script>
 

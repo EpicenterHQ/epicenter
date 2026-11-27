@@ -27,10 +27,12 @@
 
 	const settings = createQuery(() => settingsQueries.read());
 
-	const cleanup = $derived(settings.data?.cleanup);
+	/** Whether a cleanup model is saved; only then is there something to turn on or off. */
+	const saved = $derived(!!settings.data?.['cleanup.model']);
+	const enabled = $derived(settings.data?.['cleanup.enabled'] === true);
 
-	let model = $state(settings.data?.cleanup?.model ?? '');
-	let baseUrl = $state(settings.data?.cleanup?.baseUrl ?? '');
+	let model = $state(settings.data?.['cleanup.model'] ?? '');
+	let baseUrl = $state(settings.data?.['cleanup.baseUrl'] ?? '');
 	let key = $state('');
 	let triedToSave = $state(false);
 
@@ -40,7 +42,7 @@
 	 * whose key the main form keeps: only then does this form ask for a key.
 	 */
 	const otherOrigin = $derived(
-		cleanupOrigin && cleanupOrigin !== originOf(settings.data?.server?.baseUrl ?? '')
+		cleanupOrigin && cleanupOrigin !== originOf(settings.data?.['transcription.server.baseUrl'] ?? '')
 			? cleanupOrigin
 			: undefined,
 	);
@@ -65,25 +67,22 @@
 			if (keptKey.error) return toastOnError(keptKey, 'Could not save the API key');
 			key = '';
 		}
-		// Saving the model keeps cleanup on or off as it was.
-		const saved = await runMutation(queryClient, settingsMutations.update, {
-			cleanup: {
-				model: model.trim(),
-				...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-				...(cleanup?.off ? { off: true } : {}),
-			},
+		// Saving a model for the first time turns cleanup on; after that it stays on or off as it was.
+		const first = !saved;
+		const written = await runMutation(queryClient, settingsMutations.update, {
+			'cleanup.model': model.trim(),
+			'cleanup.baseUrl': baseUrl.trim(),
+			...(first ? { 'cleanup.enabled': true } : {}),
 		});
-		if (saved.error) return toastOnError(saved, 'Could not save cleanup');
-		toast.success(cleanup ? 'Cleanup saved' : 'Cleanup is on');
+		if (written.error) return toastOnError(written, 'Could not save cleanup');
+		toast.success(first ? 'Cleanup is on' : 'Cleanup saved');
 	}
 
 	async function setOn(on: boolean) {
-		if (!cleanup) return;
-		const { off: _, ...rest } = cleanup;
-		const saved = await runMutation(queryClient, settingsMutations.update, {
-			cleanup: on ? rest : { ...rest, off: true },
+		const written = await runMutation(queryClient, settingsMutations.update, {
+			'cleanup.enabled': on,
 		});
-		if (saved.error) toastOnError(saved, 'Could not change cleanup');
+		if (written.error) toastOnError(written, 'Could not change cleanup');
 	}
 </script>
 
@@ -106,11 +105,11 @@
 			long; you can always copy the original.
 		</Field.Description>
 		<Field.Group>
-			{#if cleanup}
+			{#if saved}
 				<Field.Field orientation="horizontal">
 					<Checkbox
 						id="cleanup-on"
-						checked={!cleanup.off}
+						checked={enabled}
 						onCheckedChange={(checked) => setOn(checked === true)}
 					/>
 					<Field.Label for="cleanup-on">Clean up each transcript</Field.Label>
@@ -163,7 +162,7 @@
 		</Field.Group>
 	</Field.Set>
 	<Button type="submit" variant="outline" class="self-start">
-		{cleanup ? 'Save model' : 'Turn on cleanup'}
+		{saved ? 'Save model' : 'Turn on cleanup'}
 	</Button>
 </form>
 
