@@ -5,6 +5,44 @@ A match is a lead, not a finding. Read the surrounding code, decide whether
 it is a real smell, a justified boundary, or a test fake, and group the real
 ones by cause before fixing them.
 
+## Work something else already does
+
+These need reading more than matching. Start from where the code hands work
+to something it does not own, then read what runs before and around that
+call.
+
+```bash
+rg -n 'Bun\.spawn|spawnSync|execFile|\$`|fetch\(|\.request\(' <scope> --glob '*.ts'
+rg -n -i 'retry|attempt|backoff|resume|dedupe|idempot|pending|outbox' <scope> --glob '*.ts'
+rg -n 'Runner|Client\b|\bdeps\b|inject' <scope> --glob '*.ts'
+```
+
+**Checks in front of a tool that checks.** Format, size, length, or content
+checks just before a program, server, or library that enforces the same
+thing. If the code calls the tool anyway, call it unconditionally and turn
+its failure into the error the caller sees. An audio module checked the
+format and parsed WAV headers to measure loudness before running ffmpeg. Once
+ffmpeg converted every clip, trimmed leading silence, and kept the first 120
+seconds, an empty output meant silence and the checks went. Keep a check that
+is cheaper than the call, or that protects something the tool cannot see.
+
+**Guessing what another program accepts.** Code that predicts a refusal, such
+as by matching known formats or mirroring a server's limits, instead of
+asking. The copy drifts when the other program changes. Send the request and
+read the answer.
+
+**Machinery for a promise nobody needs.** Retries, resumable state,
+deduplication, caches, saved in-flight work, and crash recovery each protect
+a guarantee. Name the guarantee and ask the user whether they need it. For
+short, easily repeated actions, losing work in a crash or making the odd
+duplicate is often a better trade than the code that prevents it.
+
+**Seams only tests use.** An injected runner, client, or clock with one real
+implementation, there so a test can swap it. Test through the real thing
+when it is fast and local, such as ffmpeg on a fixture, and fake only the
+slow or remote part at its outer edge, such as an executable that prints
+canned output.
+
 ## TypeScript
 
 **Duck typing.** Code that guesses what an object contains instead of using
