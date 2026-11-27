@@ -30,9 +30,11 @@ current code and dirty work: several chats share this checkout.
     `--transcribe-file <wav> --model <name> --json`, prints `{ "text": ... }`
     and exits. It answers the call `apps/codex` makes to Handy, so switching
     is one setting. It records nothing, saves nothing, and opens no window.
-  - One Rust engine wraps transcribe.cpp. The app calls it in memory and
-    keeps the model loaded; the command line calls it once. Neither calls the
-    other.
+  - Transcription is one Rust interface, audio in and text out, with two
+    implementations: the bundled transcribe.cpp engine, and a request to an
+    OpenAI-compatible server. Settings choose between them. The app calls
+    the interface in memory and keeps an on-device model loaded; the command
+    line calls it once. Neither calls the other.
   - A caller names the program by its full path. The installer puts nothing
     on `PATH`.
   - The app keeps its files in one folder the person picks. The picker takes
