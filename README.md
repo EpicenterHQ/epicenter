@@ -188,14 +188,14 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 
 Epicenter is free and open source under the
 [AGPL](licenses/LICENSE-AGPL-3.0). Feel free to use it, change it, and run it
-for yourself however you like. My only ask: if you share it with others,
-whether you give it away, sell it, or run it as a service for them, share your
-source under the same license, so your improvements come back to the
-community.
+for yourself however you like. Our only ask is that if you share it with
+others, whether you give it away, sell it, or run it as a service for them, you
+must share your source under the same license, so your improvements can come
+back to the community.
 
-If you or your team want a hand setting it up or building your apps, I offer
-paid support; it's what lets me keep working on Epicenter. Feel free to reach
-out.
+Down the road, I plan to offer paid support for people and teams who want a
+hand setting it up or building their apps. That's how I hope to keep working
+on Epicenter.
 
 ---
 
