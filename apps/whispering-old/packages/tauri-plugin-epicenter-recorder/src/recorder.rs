@@ -100,7 +100,7 @@ use tauri::ipc::Channel;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
-use crate::listen::{ListenSignal, Listener};
+use crate::listen::{HeardTake, ListenSignal, Listener};
 use crate::meter::Meter;
 use crate::opus::{OpusRecording, TO_48K};
 use crate::rate::RateConverter;
@@ -409,7 +409,8 @@ impl Recorder {
         self.meters
             .retain(|_, (meter_owner, _)| meter_owner != owner);
         // Dropped, which finishes the phrase it was writing.
-        self.listener.take_if(|(listener_owner, _)| listener_owner == owner);
+        self.listener
+            .take_if(|(listener_owner, _)| listener_owner == owner);
         self.finish_owned_by(owner)
     }
 
@@ -629,43 +630,31 @@ impl Recorder {
     }
 
     /// Open the microphone and listen for phrases for the window `owner_label`
-    /// (`listen.rs`). Refused [`RecorderError::Busy`] while a recording or
+    /// (`listen.rs`), writing each take in the directory `takes`. Refused [`RecorderError::Busy`] while a recording or
     /// another listener holds the slot.
     pub(crate) fn listen(
         &mut self,
         requested_device: Option<&str>,
+        takes: PathBuf,
         owner_label: String,
         signals: Channel<ListenSignal>,
     ) -> Result<()> {
         self.require_free_slot()?;
-        let listener = Listener::open(requested_device, signals)?;
+        let listener = Listener::open(requested_device, takes, signals)?;
         info!("Listening for speech: owner={owner_label}");
         self.listener = Some((owner_label, listener));
         Ok(())
     }
 
-    /// The listener the window `caller_label` opened.
-    fn require_listening(&self, caller_label: &str) -> Result<&Listener> {
-        match &self.listener {
-            Some((owner, listener)) if owner == caller_label => Ok(listener),
-            _ => Err(RecorderError::not_recording(
+    /// Stop the listener the window `caller_label` opened and release its
+    /// microphone; answers the take it was writing, finished in place.
+    pub(crate) fn unlisten(&mut self, caller_label: &str) -> Result<Option<HeardTake>> {
+        match self.listener.take_if(|(owner, _)| owner == caller_label) {
+            Some((_, listener)) => listener.close(),
+            None => Err(RecorderError::not_recording(
                 "this window is not listening for speech",
             )),
         }
-    }
-
-    /// Name the phrase the caller's listener just heard start: its take is
-    /// written at `take`.
-    pub(crate) fn name_phrase(&self, caller_label: &str, id: String, take: PathBuf) -> Result<()> {
-        self.require_listening(caller_label)?.name_phrase(id, take)
-    }
-
-    /// Stop the caller's listener and release its microphone; answers the
-    /// take it was writing, finished in place.
-    pub(crate) fn unlisten(&mut self, caller_label: &str) -> Result<Option<StoppedRecording>> {
-        self.require_listening(caller_label)?;
-        let (_, listener) = self.listener.take().expect("listening was just verified");
-        listener.close()
     }
 
     /// Mark the recording named by `id` as ended because its capture stopped

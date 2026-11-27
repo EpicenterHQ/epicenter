@@ -7,6 +7,5 @@ pub const COMMANDS: &[&str] = &[
     "start",
     "stop",
     "listen",
-    "name_phrase",
     "unlisten",
 ];

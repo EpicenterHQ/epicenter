@@ -21,7 +21,7 @@ use tauri_plugin_fs::FsExt;
 
 use crate::ended::{EndedReason, RecordingSignal};
 use crate::error::RecorderError;
-use crate::listen::ListenSignal;
+use crate::listen::{HeardTake, ListenSignal};
 use crate::meter::OpenedMeter;
 use crate::recorder::{Input, Result, StoppedRecording};
 use crate::Recorders;
@@ -216,6 +216,8 @@ pub async fn stop<R: Runtime>(webview: Webview<R>) -> Result<StoppedRecording> {
 /// Listen hands-free on the microphone whose id is `device`, or the system
 /// default: the microphone stays open, and `signals` hears its level, each
 /// phrase starting (`speech`), and each phrase's finished take (`phrase`).
+/// Each take is recorded in `recordings/` in the folder `folder`
+/// (`allowed_folder`), under an id made here from the time it began.
 /// Listening holds the host's one recorder slot until `unlisten`, or until
 /// this window's page reloads or the window is destroyed. Microphone access
 /// is asked for first, and a denial opens nothing.
@@ -223,9 +225,16 @@ pub async fn stop<R: Runtime>(webview: Webview<R>) -> Result<StoppedRecording> {
 #[specta::specta]
 pub async fn listen<R: Runtime>(
     webview: Webview<R>,
+    folder: String,
     device: Option<String>,
     signals: Channel<ListenSignal>,
 ) -> Result<()> {
+    // The directory every take goes in, made now so a folder that cannot be
+    // written is refused before the microphone opens.
+    let takes = new_take(&webview, &folder, "listening")?
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| RecorderError::failed("recordings/ has no directory"))?;
     let app = webview.app_handle().clone();
     let owner = webview.label().to_string();
     let recorders = app.state::<Recorders>();
@@ -240,31 +249,18 @@ pub async fn listen<R: Runtime>(
             "the page that asked to listen has gone",
         ));
     }
-    recorder.listen(device.as_deref(), owner, signals)
-}
-
-/// Name the phrase this window's listener just heard start: its take is
-/// recorded at `recordings/<id>.webm` in the folder `folder`
-/// (`allowed_folder`), from half a second before the voice. `id` must be one
-/// plain name with nothing at that path. Refused `NotRecording` when no
-/// phrase is waiting for a name.
-#[tauri::command]
-#[specta::specta]
-pub async fn name_phrase<R: Runtime>(webview: Webview<R>, folder: String, id: String) -> Result<()> {
-    let take = new_take(&webview, &folder, &id)?;
-    let named = webview
-        .state::<Recorders>()
-        .lock()
-        .name_phrase(webview.label(), id, take);
-    named
+    recorder.listen(device.as_deref(), takes, owner, signals)
 }
 
 /// Stop this window's listener and release its microphone. Answers the take
 /// it was writing, finished in place, or null between phrases.
 #[tauri::command]
 #[specta::specta]
-pub async fn unlisten<R: Runtime>(webview: Webview<R>) -> Result<Option<StoppedRecording>> {
-    let stopped = webview.state::<Recorders>().lock().unlisten(webview.label());
+pub async fn unlisten<R: Runtime>(webview: Webview<R>) -> Result<Option<HeardTake>> {
+    let stopped = webview
+        .state::<Recorders>()
+        .lock()
+        .unlisten(webview.label());
     stopped
 }
 

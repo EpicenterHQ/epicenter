@@ -10,7 +10,6 @@ List the microphones and read one's level, record a take into a folder the file 
 - `allow-start`
 - `allow-stop`
 - `allow-listen`
-- `allow-name-phrase`
 - `allow-unlisten`
 
 ## Permission Table
@@ -96,32 +95,6 @@ Enables the listen command without any pre-configured scope.
 <td>
 
 Denies the listen command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-recorder:allow-name-phrase`
-
-</td>
-<td>
-
-Enables the name_phrase command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-recorder:deny-name-phrase`
-
-</td>
-<td>
-
-Denies the name_phrase command without any pre-configured scope.
 
 </td>
 </tr>

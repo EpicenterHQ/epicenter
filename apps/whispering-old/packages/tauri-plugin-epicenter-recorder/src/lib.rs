@@ -31,8 +31,8 @@
 //! second `start` from any window is refused `Busy`.
 //!
 //! `listen` is hands-free: it holds that one slot with the microphone open,
-//! and each phrase spoken becomes a take the page names with `name_phrase`,
-//! until `unlisten` (`listen.rs`).
+//! and each phrase spoken becomes a take of its own, until `unlisten`
+//! (`listen.rs`).
 
 use std::sync::{Mutex, MutexGuard};
 
@@ -153,7 +153,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::start::<tauri::Wry>,
             commands::stop::<tauri::Wry>,
             commands::listen::<tauri::Wry>,
-            commands::name_phrase::<tauri::Wry>,
             commands::unlisten::<tauri::Wry>,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)

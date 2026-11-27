@@ -11,6 +11,5 @@ permissions = [
   "allow-start",
   "allow-stop",
   "allow-listen",
-  "allow-name-phrase",
   "allow-unlisten",
 ]
