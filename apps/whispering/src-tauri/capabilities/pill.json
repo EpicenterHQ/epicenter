@@ -1,0 +1,8 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "pill",
+	"description": "The floating pill's window (`pill.rs`). It hears what to show from the main window, sends back what was pressed, and shows or hides itself through `pill_show`. It touches no files, servers or keys.",
+	"local": true,
+	"windows": ["pill"],
+	"permissions": ["core:event:default", "allow-pill-show"]
+}

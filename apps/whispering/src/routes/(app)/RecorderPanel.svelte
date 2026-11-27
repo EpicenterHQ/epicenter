@@ -15,9 +15,9 @@
 	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
 	import studioMicrophone from '#lib/assets/studio-microphone.png';
 	import { getDictation } from '#lib/dictation-view.ts';
-	import Elapsed from './Elapsed.svelte';
+	import Elapsed from '../Elapsed.svelte';
 	import Key from './Key.svelte';
-	import LevelMeter from './LevelMeter.svelte';
+	import LevelMeter from '../LevelMeter.svelte';
 
 	const dictation = getDictation();
 	const take = $derived(dictation.take());

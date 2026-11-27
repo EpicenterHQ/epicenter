@@ -20,7 +20,7 @@
 		settingsMutations,
 		settingsQueries,
 	} from '#lib/queries.ts';
-	import LevelMeter from '../LevelMeter.svelte';
+	import LevelMeter from '../../LevelMeter.svelte';
 
 	/** The value the list gives the system default; a microphone's own id never looks like it. */
 	const DEFAULT = '';

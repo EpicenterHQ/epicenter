@@ -16,5 +16,5 @@ rules keep that one page from asking where it runs. The
   transcribe, clean up and copy sequence is written; `src/lib/cleanup.ts`
   holds its pure rules.
 - Screens read dictation through `getDictation()` (`DictationView` in
-  `src/lib/dictation-view.ts`); only `+layout.svelte` imports
+  `src/lib/dictation-view.ts`); only `(app)/+layout.svelte` imports
   `dictation.svelte.ts`.

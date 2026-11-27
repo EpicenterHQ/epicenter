@@ -34,6 +34,13 @@
 	const BUTTON =
 		'flex size-6 shrink-0 items-center justify-center rounded-full transition hover:scale-110 active:scale-95 motion-reduce:transition-none';
 
+	let {
+		onshownchange,
+	}: {
+		/** Hears whether the pill shows anything, so its window can hide when it does not. */
+		onshownchange?: (shown: boolean) => void;
+	} = $props();
+
 	const dictation = getDictation();
 	const take = $derived(dictation.take());
 	const outcome = $derived(dictation.outcome());
@@ -53,6 +60,8 @@
 			!listening &&
 			(outcome.kind === 'none' || (outcome.kind === 'delivered' && retired === outcome.at)),
 	);
+	$effect(() => onshownchange?.(!hidden));
+
 	/** The pill is as wide as its words, except while there is a level to show. */
 	const wide = $derived(take.kind === 'recording' || (listening && take.kind === 'idle'));
 	const failed = $derived(take.kind === 'idle' && !listening && outcome.kind === 'failed');

@@ -9,8 +9,9 @@
 	},
 	"app": {
 		"windows": [],
+		"macOSPrivateApi": true,
 		"security": {
-			"capabilities": ["whispering"],
+			"capabilities": ["whispering", "pill"],
 			"assetProtocol": { "enable": true, "scope": [] },
 			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; media-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 		}

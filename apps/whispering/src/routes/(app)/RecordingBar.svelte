@@ -9,8 +9,8 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import { getDictation } from '#lib/dictation-view.ts';
-	import Elapsed from './Elapsed.svelte';
-	import LevelMeter from './LevelMeter.svelte';
+	import Elapsed from '../Elapsed.svelte';
+	import LevelMeter from '../LevelMeter.svelte';
 
 	const dictation = getDictation();
 	const take = $derived(dictation.take());

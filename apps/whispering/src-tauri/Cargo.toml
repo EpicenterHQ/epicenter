@@ -19,7 +19,8 @@ log = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2.12", features = ["protocol-asset"] }
+# `macos-private-api` lets the pill's window be transparent on a Mac (`pill.rs`).
+tauri = { version = "2.12", features = ["protocol-asset", "macos-private-api"] }
 # Copies a transcript the moment it arrives, with no click to allow it.
 tauri-plugin-clipboard-manager = "2.5"
 tauri-plugin-epicenter-recorder = { path = "../../whispering-old/packages/tauri-plugin-epicenter-recorder" }
@@ -27,6 +28,10 @@ tauri-plugin-fs = "2.7"
 # Holds ⌘⇧; from any app to start and stop a recording (`main.rs`).
 tauri-plugin-global-shortcut = "2.4"
 tauri-plugin-single-instance = "2.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The pill's window as a panel that takes clicks without activating Whispering (`pill.rs`).
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
 
 [dev-dependencies]
 tempfile = "3.8"

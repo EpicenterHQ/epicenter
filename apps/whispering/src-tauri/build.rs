@@ -7,6 +7,7 @@ fn main() {
         "key_exists",
         "transcribe",
         "complete",
+        "pill_show",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build Whispering's Tauri manifest");

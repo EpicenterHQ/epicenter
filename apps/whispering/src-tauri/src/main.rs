@@ -7,13 +7,15 @@
 //!
 //! Requests to the person's servers run here too (`servers.rs`), with each
 //! server's API key read from the Keychain (`keys.rs`), and one fixed global shortcut asks the
-//! page to start or stop a recording.
+//! page to start or stop a recording. A second, small window floats the
+//! pill over every app while a take is under way (`pill.rs`).
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod files;
 mod keys;
+mod pill;
 mod servers;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
@@ -29,20 +31,30 @@ const SHORTCUT: &str = "CommandOrControl+Shift+Semicolon";
 const TOGGLE_RECORDING: &str = "toggle-recording";
 
 fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // The pill's window is a panel that never activates the app.
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+    builder
         // First, so a second launch stops before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| focus(app)))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_epicenter_recorder::init())
-        .setup(|app| Ok(start(app.handle())?))
+        .setup(|app| {
+            start(app.handle())?;
+            pill::open(app.handle())
+                .map_err(|error| format!("The pill's window could not open: {error}"))?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             files::files_read,
             keys::key_set,
             keys::key_exists,
             servers::transcribe,
-            servers::complete
+            servers::complete,
+            pill::pill_show
         ])
         .run(tauri::generate_context!())
         .expect("Whispering could not start");

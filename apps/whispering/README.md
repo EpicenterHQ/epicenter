@@ -45,11 +45,15 @@ Each layer imports only from the layers below it.
 ```txt
 src/
   routes/                    screens: read through queries, write through mutations
-    +layout.svelte           the sidebar frame; hands the screens the real dictation
-    +page.svelte             Home: what dictation needs, the recorder, the last takes
-    recordings/              the list and the reading pane, chosen by `?id=`
-    settings/<section>/      one page per sidebar entry
-    preview/                 development only: the screens fed a made-up dictation
+    +layout.svelte           what every window shares: the stylesheet
+    Pill.svelte              the floating pill, shared by its window and the preview
+    pill/                    the pill's own window; shows what the main window sends
+    (app)/                   the main window (a route group: no part of any address)
+      +layout.svelte         the sidebar frame; hands the screens the real dictation
+      +page.svelte           Home: the recorder, what dictation needs, the latest take
+      recordings/            the list and the reading pane, chosen by `?id=`
+      settings/<section>/    one page per settings section
+      preview/               development only: the screens fed a made-up dictation
   lib/
     dictation-view.ts        what a screen may know about dictation (`DictationView`)
     dictation.svelte.ts      live state, and record → save → transcribe → clean up → copy
@@ -63,6 +67,7 @@ src/
       files/                 files.ts (contract), tauri.ts, opfs.ts
       recorder/              recorder.ts (contract), native.ts, browser.ts
       servers/               servers.ts (contract), native.ts, browser.ts
+      pill/                  pill.ts (contract), native.ts, browser.ts: the two windows talking
     cleanup.ts               pure rules: the dictionary, when cleanup runs, what it is told
     feed.ts                  pure rules: a recording's time, day, and search match
     transcription-server.ts  the server's address and model, and presets
@@ -70,6 +75,7 @@ src-tauri/src/
   files.rs                   reads many files in one call
   keys.rs                    the Keychain
   servers.rs                 transcription and cleanup requests, with the key
+  pill.rs                    the pill's window: a panel over every app that never takes focus
   main.rs                    commands, plugins, and the global shortcut
 ```
 
@@ -179,6 +185,13 @@ again so the model cannot undo them.
 - **Home says what is wrong once, in words.** A missing setup is one line
   under the recorder, and the sidebar only marks Settings. Refused: a card,
   a status count and a summary line saying the same thing three times.
+- **The pill is its own window, and the main window tells it what to show.**
+  Dictation runs once, in the main window, which sends the pill its state
+  about twenty times a second; the pill sends back Stop, Cancel and clicks.
+  On a Mac the window is a non-activating panel, so pressing Stop never
+  pulls Whispering over the app being dictated into. Refused: a plain
+  always-on-top window, which activates the app on every click, and a
+  second copy of dictation in the pill's window, which would record twice.
 - **Recordings is a list and a reading pane, and the address names the open
   one.** Search shows the words around each match; "Needs attention" gathers
   takes with no text. Refused: v7's table, whose columns (title, subtitle,

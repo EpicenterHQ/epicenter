@@ -17,7 +17,7 @@
 	} from '#lib/dictation-view.ts';
 	import { setDictation } from '#lib/dictation-view.ts';
 	import NeedsLine from '../NeedsLine.svelte';
-	import Pill from '../Pill.svelte';
+	import Pill from '../../Pill.svelte';
 	import RecorderPanel from '../RecorderPanel.svelte';
 	import WithView from './WithView.svelte';
 
