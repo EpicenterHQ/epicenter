@@ -23,6 +23,25 @@ current code and dirty work: several chats share this checkout.
   failed save; an interrupted native recording releases the microphone and
   `recover()` finishes it; on-device transcription explains what is missing;
   a recording shows where its audio and transcript live.
+- Before `apps/whispering-old` is deleted, an audit on 2026-11-27 found these
+  still point into it or describe the old app:
+  - Packages the new app or the build still uses from
+    `apps/whispering-old/packages/`: `recorder` and
+    `tauri-plugin-epicenter-recorder` (the new app depends on both),
+    `transcription` (the on-device engine), and `whispering-files`. Each
+    needs a new home; `vite-config` has no users left.
+  - Config that names the old folder: the workspace glob and the
+    `whispering-old` scripts in `package.json`, the members in `Cargo.toml`,
+    the `@source` line in `packages/ui/src/app.css`, and `ROOTS` in
+    `scripts/check-boot-purity.ts`.
+  - Skill examples that link files the rewrite removes: `typescript`
+    (`references/editor-experience.md`, `references/type-organization.md`),
+    `error-handling` (`references/error-variants.md`), `svelte` (`SKILL.md`,
+    `references/component-ui-patterns.md`), and `tsconfig`.
+  - `apps/whispering/README.md` on `main` describes the old app: a folder
+    picker, `settings.md`, transformations that "wait for a later release",
+    and hosted models that "come back". The rewrite's README replaces it,
+    and `docs/vision.md` links its `#the-folder` heading.
 - Then: a command-line transcribe mode, so an app in an Epicenter can use
   Whispering as its transcription engine, as `apps/codex` uses Handy today.
   The shape, settled on 2026-11-27:
@@ -93,7 +112,10 @@ current code and dirty work: several chats share this checkout.
   `apps/landing/src/content/blog/launch.md` and
   `second-brain-infrastructure.md` describe the earlier product. The retired
   account website's plan comparison said "All plans include cloud sync,
-  unlimited workspaces". The front-door rewrite
+  unlimited workspaces". On 2026-11-27, `apps/landing/src/pages/whispering.astro`
+  still sells "system-global shortcuts in Epicenter", "AI Processing" with
+  custom workflows, and a provider price table; the rewrite drops
+  transformations and has one server setting plus the on-device engine. The front-door rewrite
   in `98a9930ac1` left these for a deliberate decision.
 - Revisit when: Before the next public announcement or pricing change. Privacy
   and terms wording is a legal statement; change what it promises, not only its

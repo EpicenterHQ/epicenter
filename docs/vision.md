@@ -207,7 +207,7 @@ author's apps and do not ship here.
   adds each item worth keeping with `epicenter tasks add`, and completes it in
   Todoist. Todoist stays near empty, and Tasks is the list.
 - **A recording on a plane.** Whispering on your laptop records, transcribes,
-  and pastes with no network, and keeps each recording as files in its own
+  and copies the text with no network, and keeps each recording as files in its own
   folder ([Whispering's decisions](../apps/whispering/README.md#the-folder)). It
   needs no Epicenter and no account.
 - **A voice reply from the phone.** You record a reply in an app's page. Its
