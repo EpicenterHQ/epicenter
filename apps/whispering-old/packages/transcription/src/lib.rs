@@ -9,9 +9,7 @@
 
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{plugin::TauriPlugin, Manager, Runtime};
-#[cfg(test)]
-use tauri::AppHandle;
+use tauri::{plugin::TauriPlugin, AppHandle, Manager, Runtime};
 
 pub mod audio;
 mod process;
@@ -40,9 +38,9 @@ pub struct PluginState {
 }
 
 /// This app's model cache, created on first use with its idle watcher.
-/// No Hugging Face download or model load happens here.
-#[cfg(test)]
-fn model_cache<R: Runtime>(app: &AppHandle<R>) -> Result<ModelCache, String> {
+/// No Hugging Face download or model load happens here. A host command
+/// that reads audio itself transcribes through it (`transcribe_bytes`).
+pub fn model_cache<R: Runtime>(app: &AppHandle<R>) -> Result<ModelCache, String> {
     let state = app
         .try_state::<PluginState>()
         .ok_or("Transcription plugin is not installed")?;
