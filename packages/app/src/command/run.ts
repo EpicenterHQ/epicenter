@@ -85,9 +85,7 @@ export async function answerCall(
 		app,
 		action,
 		durationMs: Math.round(performance.now() - started),
-		...(answer.error === null
-			? { outcome: 'ok' }
-			: { outcome: 'error', error: answer.error.name }),
+		error: answer.error?.name ?? null,
 	});
 	return answer;
 }

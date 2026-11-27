@@ -132,20 +132,12 @@ current code and dirty work: several chats share this checkout.
 
 - Desired result: A program has one place that writes its record and nothing
   else logs, as the [logging skill](.agents/skills/logging/SKILL.md) says.
-- Grounding, on 2026-11-27:
-  - `packages/ai/src/open-ai.ts` and `packages/ai/src/local-servers.ts` each
-    create a logger and log a hand-written `new Error` when a subscriber
-    throws. Shared code hands that failure to the program with `reportError`
-    and creates no logger.
-  - In `packages/app`, the run line carries `outcome` and `error` where one
-    `error` field (the name, or `null`) says the same. The scheduler discards
-    each answer (`void answerCall(...)` in `command/schedules.ts`), so a
-    scheduled run that fails leaves only its error's name, and one that
-    cannot start leaves no line. The scheduler should log the answer it
-    drops, with the error as `cause`.
-  - `stderrJsonLines` trims a thrown `Error` to its name and message but
-    writes a tagged error's fields whole. It should trim every `cause`.
-  - Whispering has no such place yet: see the rewrite entry.
+- Grounding, on 2026-11-27: `packages/app` and `packages/ai` follow the rule.
+  Whispering has no such place yet: see the rewrite entry. `reportError` in
+  Bun reaches `uncaughtException` when a handler is installed and the process
+  carries on. With none, Bun finishes the current turn and exits 1, so a
+  program that uses shared code must install one; `bun test` fails the test
+  that reported. In a webview it prints like any uncaught error.
 
 ### Triage the open pull requests against the current code
 

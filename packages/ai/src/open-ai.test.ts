@@ -149,6 +149,28 @@ test('subscribe tells each subscriber when any endpoint changes, until it stops'
 	expect(first.listeners.size).toBe(0);
 });
 
+test('a subscriber that throws is handed to the program and the others are still told', () => {
+	const first = probing('a', 'local');
+	const ai = openAi([first.endpoint]);
+	// The test runner fails a test on any reported error, so stand in for the program.
+	const heard: unknown[] = [];
+	const report = globalThis.reportError;
+	globalThis.reportError = (cause) => heard.push(cause);
+	const broken = new Error('subscriber broke');
+	let told = 0;
+	ai.subscribe(() => {
+		throw broken;
+	});
+	ai.subscribe(() => told++);
+	try {
+		first.find('x');
+	} finally {
+		globalThis.reportError = report;
+	}
+	expect(heard).toEqual([broken]);
+	expect(told).toBe(1);
+});
+
 test('refresh asks every endpoint that probes to look again', async () => {
 	let refreshed = 0;
 	const ai = openAi([
