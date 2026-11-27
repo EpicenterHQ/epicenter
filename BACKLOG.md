@@ -37,21 +37,23 @@ current code and dirty work: several chats share this checkout.
     line calls it once. Neither calls the other.
   - A caller names the program by its full path. The installer puts nothing
     on `PATH`.
-  - The app keeps its files in one folder the person picks. The picker takes
-    any folder and never mentions Epicenter; an Epicenter's own docs say to
-    choose `~/Epicenter/data/whispering`.
-  - The browser version gets neither the command line nor the folder choice.
-  - Refused: a background server for an Epicenter to call, a Whispering app
-    inside an Epicenter, and recording from the command line.
+  - The app keeps its files in its own data directory and shows where they
+    are. An Epicenter reaches Whispering one way: an action written with
+    `defineAction` runs the command line.
+  - The browser version has no command line.
+  - Refused: a folder picker, which needs a setting, a missing-folder screen,
+    and a rule for recordings already made; a background server for an
+    Epicenter to call; recording from the command line.
+  - Set aside, not refused: a Whispering app to copy into an Epicenter, and
+    Whispering sending each finished recording to one.
   - Grounding: on 2026-11-27 the rewrite only calls a transcription server.
     The transcribe.cpp engine and the native recorder are packages under
     `apps/whispering-old/packages/`, and the new app already links the
     recorder from there. Both move out before `apps/whispering-old` is
-    deleted. The rewrite's README keeps files in the app's data directory
-    with no picker, which the folder choice reverses.
-  - Open: whether the command line reads the folder's dictionary and default
-    model when no flag names them; whether a data key can sit at
-    `data/whispering/recordings`.
+    deleted.
+  - Open: whether the command line reads `dictionary.txt` and the default
+    model when no flag names them; whether it may use the server
+    implementation or only the on-device one.
 
 ### Dictation into other apps
 
