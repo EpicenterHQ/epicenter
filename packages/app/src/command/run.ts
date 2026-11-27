@@ -19,6 +19,7 @@ import { Value } from 'typebox/value';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Err, tryAsync, trySync } from 'wellcrafted/result';
+import type { CallOptions } from '../action.ts';
 import {
 	ActionError,
 	type Answer,
@@ -38,8 +39,7 @@ export async function answerCall(
 	app: string,
 	action: string,
 	input: unknown,
-	onUpdate?: (value: unknown) => unknown,
-	signal?: AbortSignal,
+	options: CallOptions<unknown> = {},
 ): Promise<Answer> {
 	if (program.problem)
 		return ActionError.NotStarted({
@@ -75,7 +75,7 @@ export async function answerCall(
 	// A throw while running or while reading what the run returned, such as a
 	// getter on its error, means it ran and broke.
 	const ran = await tryAsync({
-		try: async () => answerOf(action, await run(input, { onUpdate, signal })),
+		try: async () => answerOf(action, await run(input, options)),
 		catch: (cause) =>
 			ActionError.Threw({ message: extractErrorMessage(cause) }),
 	});

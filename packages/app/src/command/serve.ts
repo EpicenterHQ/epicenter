@@ -340,7 +340,7 @@ function createRoute(
 		const input = parseJson(await request.text());
 		return streamCall(
 			(onUpdate, signal) =>
-				answerCall(program, app, action, input, onUpdate, signal),
+				answerCall(program, app, action, input, { onUpdate, signal }),
 			request,
 		);
 	};
