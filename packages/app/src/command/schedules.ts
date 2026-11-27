@@ -3,7 +3,7 @@ import type { ScheduleListing } from '../call.ts';
 import { isPlainObject, parseJson } from '../json.ts';
 import { isName, NAME_RULE } from '../name.ts';
 import type { Program } from './program.ts';
-import { answerCall, inputProblem } from './run.ts';
+import { callAction, inputProblem } from './run.ts';
 
 const MINUTE = 60_000;
 export type Schedule = {
@@ -80,7 +80,12 @@ export function startSchedules(program: Program) {
 		timer = setTimeout(tick, MINUTE - (now % MINUTE));
 		for (const entry of entries) {
 			const current = Date.now();
-			const { cron, action, inputJson, next: due } = entry;
+			const {
+				cron,
+				action: [app, action],
+				inputJson,
+				next: due,
+			} = entry;
 			if (due === null || due > current) continue;
 			entry.next = nextRun(cron, current);
 			const currentMinute = current - (current % MINUTE);
@@ -88,7 +93,7 @@ export function startSchedules(program: Program) {
 				due >= currentMinute ? due : nextRun(cron, currentMinute - 1);
 			if (occurrence !== null && occurrence <= current)
 				// Nobody awaits a scheduled run; the runner's line records how it ended.
-				void answerCall(program, ...action, parseJson(inputJson));
+				void callAction(program, { app, action, input: parseJson(inputJson) });
 		}
 	}
 	tick();

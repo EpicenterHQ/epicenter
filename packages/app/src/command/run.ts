@@ -34,11 +34,9 @@ import type { Program } from './program.ts';
 /** Where serve writes one record for each call, when it ends. */
 const runLog = createLogger('epicenter/run', stderrJsonLines);
 
-export async function answerCall(
+export async function callAction(
 	program: Program,
-	app: string,
-	action: string,
-	input: unknown,
+	{ app, action, input }: { app: string; action: string; input: unknown },
 	options: CallOptions<unknown> = {},
 ): Promise<Answer> {
 	const started = performance.now();

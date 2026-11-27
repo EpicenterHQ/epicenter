@@ -58,7 +58,7 @@ import { lockHome } from './home-lock.ts';
 import { createMcp } from './mcp.ts';
 import { stderrJsonLines, writeErr } from './output.ts';
 import { loadProgram, type Program } from './program.ts';
-import { answerCall } from './run.ts';
+import { callAction } from './run.ts';
 import { startSchedules } from './schedules.ts';
 
 /** Serve listens only here. */
@@ -340,7 +340,7 @@ function createRoute(
 		const input = parseJson(await request.text());
 		return streamCall(
 			(onUpdate, signal) =>
-				answerCall(program, app, action, input, { onUpdate, signal }),
+				callAction(program, { app, action, input }, { onUpdate, signal }),
 			request,
 		);
 	};
