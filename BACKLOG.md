@@ -23,13 +23,38 @@ current code and dirty work: several chats share this checkout.
   failed save; an interrupted native recording releases the microphone and
   `recover()` finishes it; on-device transcription explains what is missing;
   a recording shows where its audio and transcript live.
+- Before `apps/whispering-old` is deleted, an audit on 2026-11-27 found these
+  still point into it or describe the old app:
+  - Packages the new app or the build still uses from
+    `apps/whispering-old/packages/`: `recorder` and
+    `tauri-plugin-epicenter-recorder` (the new app depends on both),
+    `transcription` (the on-device engine), and `whispering-files`. Each
+    needs a new home; `vite-config` has no users left.
+  - Config that names the old folder: the workspace glob and the
+    `whispering-old` scripts in `package.json`, the members in `Cargo.toml`,
+    the `@source` line in `packages/ui/src/app.css`, and `ROOTS` in
+    `scripts/check-boot-purity.ts`.
+  - Skill examples that link files the rewrite removes: `typescript`
+    (`references/editor-experience.md`, `references/type-organization.md`),
+    `error-handling` (`references/error-variants.md`), `svelte` (`SKILL.md`,
+    `references/component-ui-patterns.md`), and `tsconfig`.
+  - `apps/whispering/README.md` on `main` describes the old app: a folder
+    picker, `settings.md`, transformations that "wait for a later release",
+    and hosted models that "come back". The rewrite's README replaces it,
+    and `docs/vision.md` links its `#the-folder` heading.
 - Then: a command-line transcribe mode, so an app in an Epicenter can use
   Whispering as its transcription engine, as `apps/codex` uses Handy today.
   The shape, settled on 2026-11-27:
-  - The installed desktop program, run with
-    `--transcribe-file <wav> --model <name> --json`, prints `{ "text": ... }`
-    and exits. It answers the call `apps/codex` makes to Handy, so switching
-    is one setting. It records nothing, saves nothing, and opens no window.
+  - The installed desktop program has a headless mode with Handy's flags:
+    `--transcribe-file <path>`, `--model <id>`, `--json`, and `--list-models`.
+    It transcribes with the engine and selected model the app uses, prints
+    `{ "text": ... }`, and exits. It records nothing, saves nothing, and
+    opens no window.
+  - It does more than Handy in two ways. It takes any audio the engine's
+    decoder reads (WAV, MP3, AAC in MP4, Opus in WebM or Ogg), where Handy
+    takes only 16 kHz mono WAV. It names what went wrong: no speech, a
+    missing model, a file it cannot read. A caller needs no ffmpeg step, and
+    `apps/codex` can switch with one setting.
   - Transcription is one Rust interface, audio in and text out, with two
     implementations: the bundled transcribe.cpp engine, and a request to an
     OpenAI-compatible server. Settings choose between them. The app calls
@@ -37,21 +62,23 @@ current code and dirty work: several chats share this checkout.
     line calls it once. Neither calls the other.
   - A caller names the program by its full path. The installer puts nothing
     on `PATH`.
-  - The app keeps its files in one folder the person picks. The picker takes
-    any folder and never mentions Epicenter; an Epicenter's own docs say to
-    choose `~/Epicenter/data/whispering`.
-  - The browser version gets neither the command line nor the folder choice.
-  - Refused: a background server for an Epicenter to call, a Whispering app
-    inside an Epicenter, and recording from the command line.
+  - The app keeps its files in its own data directory and shows where they
+    are. An Epicenter reaches Whispering one way: an action written with
+    `defineAction` runs the command line.
+  - The browser version has no command line.
+  - Refused: a folder picker, which needs a setting, a missing-folder screen,
+    and a rule for recordings already made; a background server for an
+    Epicenter to call; recording from the command line.
+  - Set aside, not refused: a Whispering app to copy into an Epicenter, and
+    Whispering sending each finished recording to one.
   - Grounding: on 2026-11-27 the rewrite only calls a transcription server.
     The transcribe.cpp engine and the native recorder are packages under
     `apps/whispering-old/packages/`, and the new app already links the
     recorder from there. Both move out before `apps/whispering-old` is
-    deleted. The rewrite's README keeps files in the app's data directory
-    with no picker, which the folder choice reverses.
-  - Open: whether the command line reads the folder's dictionary and default
-    model when no flag names them; whether a data key can sit at
-    `data/whispering/recordings`.
+    deleted.
+  - Open: whether the command line reads `dictionary.txt` and the default
+    model when no flag names them; whether it may use the server
+    implementation or only the on-device one.
 
 ### Dictation into other apps
 
@@ -85,7 +112,10 @@ current code and dirty work: several chats share this checkout.
   `apps/landing/src/content/blog/launch.md` and
   `second-brain-infrastructure.md` describe the earlier product. The retired
   account website's plan comparison said "All plans include cloud sync,
-  unlimited workspaces". The front-door rewrite
+  unlimited workspaces". On 2026-11-27, `apps/landing/src/pages/whispering.astro`
+  still sells "system-global shortcuts in Epicenter", "AI Processing" with
+  custom workflows, and a provider price table; the rewrite drops
+  transformations and has one server setting plus the on-device engine. The front-door rewrite
   in `98a9930ac1` left these for a deliberate decision.
 - Revisit when: Before the next public announcement or pricing change. Privacy
   and terms wording is a legal statement; change what it promises, not only its
