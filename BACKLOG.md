@@ -26,10 +26,16 @@ current code and dirty work: several chats share this checkout.
 - Then: a command-line transcribe mode, so an app in an Epicenter can use
   Whispering as its transcription engine, as `apps/codex` uses Handy today.
   The shape, settled on 2026-11-27:
-  - The installed desktop program, run with
-    `--transcribe-file <wav> --model <name> --json`, prints `{ "text": ... }`
-    and exits. It answers the call `apps/codex` makes to Handy, so switching
-    is one setting. It records nothing, saves nothing, and opens no window.
+  - The installed desktop program has a headless mode with Handy's flags:
+    `--transcribe-file <path>`, `--model <id>`, `--json`, and `--list-models`.
+    It transcribes with the engine and selected model the app uses, prints
+    `{ "text": ... }`, and exits. It records nothing, saves nothing, and
+    opens no window.
+  - It does more than Handy in two ways. It takes any audio the engine's
+    decoder reads (WAV, MP3, AAC in MP4, Opus in WebM or Ogg), where Handy
+    takes only 16 kHz mono WAV. It names what went wrong: no speech, a
+    missing model, a file it cannot read. A caller needs no ffmpeg step, and
+    `apps/codex` can switch with one setting.
   - Transcription is one Rust interface, audio in and text out, with two
     implementations: the bundled transcribe.cpp engine, and a request to an
     OpenAI-compatible server. Settings choose between them. The app calls
