@@ -7,6 +7,7 @@ description: Develop a shared understanding of an unsettled idea and how it coul
 
 Dialectic develops a shared understanding of what the user is reaching
 for and how it could take shape.
+Explain things in plain English throughout.
 
 An articulation gives an idea a form the user can examine. The user can
 often recognize what is right or missing before they can put it into
