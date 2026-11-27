@@ -1,8 +1,7 @@
 # Example conversations
 
-These illustrations make the progression and particular conversational
-judgments available for examination. They are not measured runs or records of
-the user's preferences.
+These illustrative conversations show how the agent and user agree on an
+intent, articulate a vision, and work backward from it.
 
 ## Database settings: reconsider a stable handle
 
@@ -12,34 +11,30 @@ This conversation and app are hypothetical.
 keep references to the old one. I'm thinking of a permanent wrapper that swaps
 the underlying handle and reattaches subscriptions.
 
-**Agent:** My reading of the intent is:
+**Agent:** Here's how I understand the intent.
 
 > Make changed settings take effect correctly while preserving the user's work.
 
-The wrapper would preserve the object components already hold. What would the
-user lose if the app restarted with the new settings instead?
+**User:** Say “saved work.” These settings live on a separate page, and
+the user will have finished editing before they get there. Their saved
+data is what matters.
 
-**User:** Their saved data needs to remain. But these settings are changed
-rarely, on a separate settings page. There isn't an unfinished edit to preserve.
-I was mainly trying to avoid replacing every component's reference.
+**Agent:** Here's the intent with that clarified.
 
-**Agent:** Then preserving the handle may be a consequence of keeping the
-current app session alive.
+> Make changed settings take effect while preserving the user's saved work.
 
-Starting from scratch, I'd use the app's normal startup path to open the
-database and give components their handle. Applying these settings could start
-that process again:
+**User:** That's right.
 
-> Save the new startup settings and restart the app using them.
+**Agent:** Here's what I picture.
 
-Reloading would recreate the components with the new handle. It would also
-reset temporary UI state. Is that an acceptable experience for this settings
-change?
+> The user applies the settings. The app briefly reloads and opens with
+> the new settings and all their saved work.
 
-**User:** Yes. A reload there is fine. I don't need the same components to
-survive; I need the app to come back correctly with the saved work.
+**User:** That's right. A brief reload is fine here. How would we make that
+work?
 
-**Agent:** Then I'd use this flow:
+**Agent:** We can use the app's normal startup path. It already opens the
+database and gives components their handle.
 
 ```text
 Save the settings
@@ -48,31 +43,31 @@ Save the settings
 → normal startup opens the database with the new settings
 ```
 
-This assumes the saved-work condition you described. Reloading itself doesn't
-save unfinished work.
-
-The wrapper would maintain continuity across a live transition. We've
-established that this transition can instead use ordinary startup, so I'd
-remove the wrapper proposal.
-
-The turning point is the user distinguishing what must survive from the
-mechanism initially proposed to preserve it. Reload becomes a good solution
-through that discovery and the user's judgment about its cost.
+To check the result, change the settings and verify that the app comes back
+with the new settings and the same saved work.
 
 ## Blog writing: compare the rendered openings
 
 This illustrative exchange draws on the blog-opening comparison discussed in
-conversation `01a0c8c6-13fa-7903-9877-946764e5e8d3`. The proposed follow-up
-reaction is hypothetical. The italicized actions stand in for screenshots;
-in live work, render and show the actual images.
+conversation `01a0c8c6-13fa-7903-9877-946764e5e8d3`. The wording and
+follow-up are illustrative. The italicized actions stand in for screenshots.
 
 > **Human:** We've revised the opening several times and I can't tell whether
 > it's getting better. Can I see the versions side by side?
 >
-> **Agent:** The latest opening states the rule, shows the code, then explains
-> what happened. The earlier opening gives readers a map of the call chain
-> first. I'll show both alongside the original on your blog so you can compare
-> how the openings actually read.
+> **Agent:** Here's how I understand the intent.
+>
+> > Choose the opening that gives readers the clearest way into the idea.
+>
+> **Human:** That's right.
+>
+> **Agent:** Here's what I'd want you to see.
+>
+> > Three versions of the opening side by side as they'd appear on the blog,
+> > each with the transition into the next section. You can read them the way
+> > a reader would and see where each one lands you.
+>
+> **Human:** That's right. Show me that.
 >
 > *The agent renders all three openings on the blog and shows labeled previews
 > together, including the transition into the next section.*
@@ -91,8 +86,6 @@ in live work, render and show the actual images.
 > **Agent:** Here's the shorter quote in place. It explains the change from
 > returning a result to acting on it, without repeating the opening rule.
 
-The explanation describes how the opening should teach the idea. The rendered
-opening lets the user judge how the prose, code, quotation, and spacing work
-together. Plain text could show the proposed wording but would leave the
-reader's path through those elements to the user's imagination. A sentence-only
-choice may need only prose in chat; this comparison needs the page.
+The rendered comparison lets the user judge how the prose, code, quotation,
+and spacing work together. Once the user chooses the opening sentence and code,
+the next revision carries both forward.
