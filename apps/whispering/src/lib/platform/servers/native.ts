@@ -31,12 +31,13 @@ const asked = <T>(command: string, args: Record<string, unknown>) =>
 export const nativeServers: Servers = {
 	keyKeptIn: 'the macOS Keychain',
 
-	transcribe: (id, { baseUrl, model }, prompt) =>
+	transcribe: (id, { baseUrl, model }, { prompt, language }) =>
 		asked<string>('transcribe', {
 			id,
 			baseUrl,
 			model,
 			prompt: prompt ?? null,
+			language: language ?? null,
 		}),
 
 	complete: ({ baseUrl, model }, { instructions, text, timeoutMs }) =>

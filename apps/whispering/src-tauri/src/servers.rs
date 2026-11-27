@@ -52,6 +52,7 @@ pub async fn transcribe<R: Runtime>(
     base_url: String,
     model: String,
     prompt: Option<String>,
+    language: Option<String>,
 ) -> Result<String, ServerError> {
     if !is_bare_name(&id) {
         return Err(ServerError::NoAudio {
@@ -84,6 +85,7 @@ pub async fn transcribe<R: Runtime>(
         &endpoint,
         &model,
         prompt.as_deref(),
+        language.as_deref(),
         key.as_deref(),
         audio,
         format!("{id}.webm"),
@@ -178,6 +180,7 @@ async fn send(
     endpoint: &str,
     model: &str,
     prompt: Option<&str>,
+    language: Option<&str>,
     key: Option<&str>,
     audio: Vec<u8>,
     file_name: String,
@@ -194,6 +197,9 @@ async fn send(
     let mut form = reqwest::multipart::Form::new().text("model", model.to_string());
     if let Some(prompt) = prompt.filter(|prompt| !prompt.is_empty()) {
         form = form.text("prompt", prompt.to_string());
+    }
+    if let Some(language) = language.filter(|language| !language.is_empty()) {
+        form = form.text("language", language.to_string());
     }
     let form = form.part("file", file);
     let (status, body) = post(endpoint, client.post(endpoint).multipart(form), key).await?;
@@ -455,6 +461,7 @@ mod tests {
             &endpoint(base),
             "whisper-1",
             None,
+            None,
             key,
             b"AUDIO".to_vec(),
             "a.webm".to_string(),
@@ -493,6 +500,7 @@ mod tests {
             &endpoint(&base),
             "whisper-1",
             Some("Epicenter, Whispering."),
+            Some("fr"),
             None,
             b"AUDIO".to_vec(),
             "a.webm".to_string(),
@@ -501,6 +509,10 @@ mod tests {
         let request = request.recv().unwrap();
         assert!(
             request.contains("name=\"prompt\"\r\n\r\nEpicenter, Whispering.\r\n"),
+            "{request}"
+        );
+        assert!(
+            request.contains("name=\"language\"\r\n\r\nfr\r\n"),
             "{request}"
         );
     }

@@ -117,15 +117,28 @@
 	let sidebarOpen = $state(true);
 
 	const settingsKnown = $derived(settings.data !== undefined);
-	// Hold the shortcuts the settings name, again only when one of them
-	// changes or the Shortcuts page stops reading a new one. Letting the
-	// keys go loses a release under way, so a held take is finished first.
+	/**
+	 * Escape, while a take a person started is recording and the settings
+	 * want it; nothing otherwise, so Escape is every other app's the rest
+	 * of the time. A hands-free take has no cancel: Stop listening ends it.
+	 */
+	const cancelKeys = $derived.by(() => {
+		const take = dictation.take();
+		const cancellable = take.kind === 'recording' && take.trigger !== 'voice';
+		return cancellable && settings.data?.['shortcut.escapeCancels'] ? 'Escape' : '';
+	});
+	// Hold the shortcuts the settings name, and Escape while a take records.
+	// Rust leaves alone a shortcut whose keys did not change, so a hold
+	// under way keeps its release when Escape comes and goes.
 	$effect(() => {
 		if (!settingsKnown) return;
 		shortcutHolds.paused();
-		const keys = { toggle: toggleKeys, hold: holdKeys, handsFree: handsFreeKeys };
-		dictation.hold(false);
-		void shortcutHolds.apply(keys);
+		void shortcutHolds.apply({
+			toggle: toggleKeys,
+			hold: holdKeys,
+			handsFree: handsFreeKeys,
+			cancel: cancelKeys,
+		});
 	});
 	$effect(() => shortcuts.onPress((name, down) => dictation.press(name, down)));
 

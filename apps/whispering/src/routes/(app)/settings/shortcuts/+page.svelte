@@ -1,17 +1,26 @@
 <!--
 	Settings · Shortcuts. The keys that record from any app: one starts and
 	stops a take, one records while held, and one turns Hands-free on and
-	off. Each is changed by pressing the new keys, and saved at once. A
+	off; Escape cancels a take while one records. Under them, whether the
+	system opens Whispering at login. Each is changed by pressing the new keys, and saved at once. A
 	shortcut another app holds says so under its row. A browser tab has no
 	global shortcuts, and says that instead.
 -->
 <script lang="ts">
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { createQuery } from '@tanstack/svelte-query';
+	import { toast } from 'svelte-sonner';
 	import { runMutation } from 'wellcrafted/query';
 	import type { Settings } from '#lib/data/settings.ts';
-	import { shortcuts } from '#lib/platform/index.ts';
-	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
+	import { Switch } from '@epicenter/ui/switch';
+	import { autostart, shortcuts } from '#lib/platform/index.ts';
+	import {
+		autostartMutations,
+		autostartQueries,
+		queryClient,
+		settingsMutations,
+		settingsQueries,
+	} from '#lib/queries.ts';
 	import { shortcutHolds } from '#lib/shortcut-holds.svelte.ts';
 	import SettingsRow from '../SettingsRow.svelte';
 	import SettingsSection from '../SettingsSection.svelte';
@@ -19,6 +28,16 @@
 
 	const settings = createQuery(() => settingsQueries.read());
 	const off = !shortcuts.available;
+	const startsAtLogin = createQuery(() => ({
+		...autostartQueries.enabled(),
+		enabled: autostart.available,
+	}));
+
+	async function setAutostart(on: boolean) {
+		const changed = await runMutation(queryClient, autostartMutations.set, { on });
+		if (changed.error)
+			toast.error('Could not change it', { description: changed.error.message });
+	}
 
 	async function save(change: Partial<Settings>) {
 		const saved = await runMutation(queryClient, settingsMutations.update, change);
@@ -76,6 +95,37 @@
 			removable
 			disabled={off}
 			onchange={(keys) => save({ 'shortcut.handsFree': keys })}
+		/>
+	</SettingsRow>
+	<SettingsRow
+		label="Escape cancels a take"
+		description="While a take records, Escape throws it away from any app. The rest of the time Escape is left alone."
+		for="escape-cancels"
+		disabled={off}
+	>
+		<Switch
+			id="escape-cancels"
+			checked={!off && settings.data?.['shortcut.escapeCancels'] !== false}
+			disabled={off}
+			onCheckedChange={(on) => save({ 'shortcut.escapeCancels': on })}
+		/>
+	</SettingsRow>
+</SettingsSection>
+
+<SettingsSection title="Startup" description="The shortcuts work only while Whispering is open.">
+	<SettingsRow
+		label="Open Whispering when I log in"
+		description={autostart.available
+			? 'It starts with its window closed. Click it in the Dock to see it.'
+			: 'Needs the desktop app.'}
+		for="autostart"
+		disabled={!autostart.available}
+	>
+		<Switch
+			id="autostart"
+			checked={startsAtLogin.data === true}
+			disabled={!autostart.available}
+			onCheckedChange={(on) => setAutostart(on)}
 		/>
 	</SettingsRow>
 </SettingsSection>

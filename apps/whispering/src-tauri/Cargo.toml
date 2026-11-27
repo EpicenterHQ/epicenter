@@ -14,6 +14,8 @@ tauri-build = { version = "2.6", features = [] }
 [dependencies]
 # The transcription server's API key, as a Keychain item per server (`keys.rs`).
 keyring = "4.2"
+# Has the system open Whispering at login (`autostart.rs`).
+tauri-plugin-autostart = "2"
 # Presses the paste keys in the app in front (`paste.rs`).
 enigo = "0.5.0"
 log = "0.4"

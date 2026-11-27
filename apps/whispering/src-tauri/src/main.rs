@@ -15,6 +15,7 @@
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
 mod cli;
 mod files;
 mod keys;
@@ -25,7 +26,7 @@ mod pill;
 mod servers;
 mod shortcuts;
 
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_fs::FsExt;
 
 /// The window's label, which the capability selects.
@@ -55,6 +56,30 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![autostart::HIDDEN]),
+        ))
+        .manage(shortcuts::Held::default())
+        .on_window_event(|window, event| {
+            if window.label() != WINDOW {
+                return;
+            }
+            let WindowEvent::CloseRequested { api, .. } = event else {
+                return;
+            };
+            // On a Mac, closing the window leaves the app in the Dock with
+            // its shortcuts working, as closing a window does there. The
+            // page lives on in the hidden window, so a take under way goes
+            // on. Elsewhere there is no Dock to bring it back from, so
+            // closing the window quits, pill and all.
+            if cfg!(target_os = "macos") {
+                api.prevent_close();
+                let _ = window.hide();
+            } else {
+                window.app_handle().exit(0);
+            }
+        })
         .plugin(tauri_plugin_epicenter_recorder::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_epicenter_transcription::init())
@@ -75,6 +100,8 @@ fn main() {
             local::transcribe_local,
             pill::pill_show,
             shortcuts::shortcuts_set,
+            autostart::autostart_enabled,
+            autostart::autostart_set,
             media::pause_playback,
             media::resume_playback,
             paste::paste_allowed,
@@ -85,7 +112,15 @@ fn main() {
         .expect("Whispering could not start");
     // On a Mac this exits without running C++ static finalizers, which can
     // race a model still loaded on the GPU (the transcription plugin's README).
-    tauri_plugin_epicenter_transcription::run(app, |_, _| {});
+    tauri_plugin_epicenter_transcription::run(app, |app, event| {
+        // A click on the Dock icon brings back a window that was closed.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            focus(app);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
+    });
 }
 
 /// Make the data directory, allow it in the file system scope, then open
@@ -105,6 +140,8 @@ fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .map_err(|error| format!("{} could not be opened: {error}", folder.display()))?;
     WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
         .title("Whispering")
+        // Opened by the system at login, it waits out of sight.
+        .visible(!std::env::args().any(|arg| arg == autostart::HIDDEN))
         .inner_size(900.0, 720.0)
         .min_inner_size(400.0, 400.0)
         .build()

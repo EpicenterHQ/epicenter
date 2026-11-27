@@ -56,13 +56,14 @@ export type Servers = {
 	/** Where a key is kept, as a person reads it: "the macOS Keychain". */
 	keyKeptIn: string;
 	/**
-	 * The text of the recording `id`, from `server`. `prompt`, when given,
-	 * goes as the request's `prompt`: words the server should spell as given.
+	 * The text of the recording `id`, from `server`. `hints.prompt`, when
+	 * given, goes as the request's `prompt`: words the server should spell
+	 * as given. `hints.language` goes as its `language`.
 	 */
 	transcribe(
 		id: string,
 		server: Server,
-		prompt: string | undefined,
+		hints: TranscriptionHints,
 	): Promise<Result<string, ServerError | ServersError>>;
 	/** The answer of the chat model `server` to `completion`, trimmed. */
 	complete(
@@ -73,4 +74,12 @@ export type Servers = {
 	setKey(baseUrl: string, key: string): Promise<Result<void, ServersError>>;
 	/** Whether a key is kept for the server at `baseUrl`. */
 	hasKey(baseUrl: string): Promise<Result<boolean, ServersError>>;
+};
+
+/** What helps a transcription, when the person has given any. */
+export type TranscriptionHints = {
+	/** Words to spell as written. */
+	prompt?: string;
+	/** The language spoken, as a two-letter code; left out to have it detected. */
+	language?: string;
 };

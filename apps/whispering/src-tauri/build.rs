@@ -19,6 +19,8 @@ fn main() {
         "transcribe_local",
         "pill_show",
         "shortcuts_set",
+        "autostart_enabled",
+        "autostart_set",
         "pause_playback",
         "resume_playback",
         "paste_allowed",

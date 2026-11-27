@@ -7,9 +7,10 @@
 //! same keys leaves that one shortcut off and says so, never the app.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Runtime, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 /// What the main window hears for each press and release.
@@ -23,20 +24,41 @@ struct Press<'a> {
     down: bool,
 }
 
+/// The shortcuts held now, each name with its keys.
+#[derive(Default)]
+pub struct Held(Mutex<HashMap<String, String>>);
+
 /// Hold exactly the shortcuts in `shortcuts`, each a name and its keys
 /// (`Alt+Space`); a name with no keys holds nothing. Answers, by name, why
 /// each one that could not be held was not.
+///
+/// A shortcut already held with the same keys is left alone. Letting keys
+/// go and holding them again loses a release under way, and one shortcut
+/// (Escape, to cancel) comes and goes while another may be held down.
 #[tauri::command]
 pub fn shortcuts_set<R: Runtime>(
     app: AppHandle<R>,
+    held: State<'_, Held>,
     shortcuts: HashMap<String, String>,
 ) -> Result<HashMap<String, String>, String> {
-    let held = app.global_shortcut();
-    held.unregister_all()
-        .map_err(|error| format!("The shortcuts could not be let go: {error}"))?;
+    let system = app.global_shortcut();
+    let mut held = held
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Let go of every shortcut that is no longer wanted, or wanted with other keys.
+    held.retain(|name, keys| {
+        if shortcuts.get(name) == Some(keys) {
+            return true;
+        }
+        if let Err(error) = system.unregister(keys.as_str()) {
+            log::warn!("The shortcut {keys} could not be let go: {error}");
+        }
+        false
+    });
     let mut problems = HashMap::new();
     for (name, keys) in shortcuts {
-        if keys.is_empty() {
+        if keys.is_empty() || held.contains_key(&name) {
             continue;
         }
         let shortcut = match keys.parse::<Shortcut>() {
@@ -47,19 +69,24 @@ pub fn shortcuts_set<R: Runtime>(
             }
         };
         let pressed = name.clone();
-        let registered = held.on_shortcut(shortcut, move |app, _shortcut, event| {
+        let registered = system.on_shortcut(shortcut, move |app, _shortcut, event| {
             let press = Press {
                 name: &pressed,
                 down: event.state == ShortcutState::Pressed,
             };
             let _ = app.emit_to(crate::WINDOW, PRESS, press);
         });
-        if let Err(error) = registered {
-            log::warn!("The shortcut {keys} could not be held: {error}");
-            problems.insert(
-                name,
-                "These keys could not be held. Another app may be using them.".to_string(),
-            );
+        match registered {
+            Ok(()) => {
+                held.insert(name, keys);
+            }
+            Err(error) => {
+                log::warn!("The shortcut {keys} could not be held: {error}");
+                problems.insert(
+                    name,
+                    "These keys could not be held. Another app may be using them.".to_string(),
+                );
+            }
         }
     }
     Ok(problems)
@@ -81,6 +108,7 @@ mod tests {
             "Shift+F5",
             "Control+ArrowUp",
             "Alt+Backquote",
+            "Escape",
         ] {
             assert!(keys.parse::<Shortcut>().is_ok(), "{keys} does not parse");
         }

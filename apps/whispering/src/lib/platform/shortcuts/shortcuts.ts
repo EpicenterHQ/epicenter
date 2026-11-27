@@ -15,7 +15,9 @@ export type ShortcutName =
 	/** Records while the keys are down. */
 	| 'hold'
 	/** Turns hands-free on, and off. */
-	| 'handsFree';
+	| 'handsFree'
+	/** Throws away the take under way. Held only while one records. */
+	| 'cancel';
 
 export type Shortcuts = {
 	/** Whether this place has global shortcuts at all. */

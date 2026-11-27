@@ -30,14 +30,16 @@ pub enum LocalError {
 
 /// The transcript of the recording `id`, from `model` on this computer; an
 /// empty string when the audio holds no sound. `prompt` is words to spell as
-/// written, which reaches a model that takes one (Whisper) and is left out
-/// for one that does not (Parakeet).
+/// written, and `language` is the language spoken, as a two-letter code;
+/// each reaches a model that takes it (Whisper) and is left out for one
+/// that does not (Parakeet).
 #[tauri::command]
 pub async fn transcribe_local<R: Runtime>(
     app: AppHandle<R>,
     id: String,
     model: String,
     prompt: Option<String>,
+    language: Option<String>,
 ) -> Result<String, LocalError> {
     if !is_bare_name(&id) {
         return Err(LocalError::NoAudio {
@@ -56,7 +58,7 @@ pub async fn transcribe_local<R: Runtime>(
             },
         })?;
         let hints = TranscriptionHints {
-            language: None,
+            language,
             initial_prompt: prompt,
         };
         match cache.transcribe_bytes(model, &audio, hints) {

@@ -92,12 +92,14 @@ src/
       shortcuts/             shortcuts.ts (contract), native.ts, browser.ts: keys that work from any app
       paste/                 paste.ts (contract), native.ts, browser.ts: the paste keys, in the app in front
       media/                 media.ts (contract), native.ts, browser.ts: pausing music for a take
+      autostart/             autostart.ts (contract), native.ts, browser.ts: opening at login
       local/                 local.ts (contract), native.ts, browser.ts: models on this computer
       pill/                  pill.ts (contract), native.ts, browser.ts: the two windows talking
     cleanup.ts               pure rules: the dictionary, when cleanup runs, what it is told
     shortcut.ts              pure rules: a shortcut's keys from a key press, and as a person reads them
     shortcut-holds.svelte.ts which shortcuts are held now, and why one is not
     sounds.ts                the notes that mark a take starting and ending
+    languages.ts             the languages a person can say they dictate in
     loudness.ts              a microphone's level as how loud it sounds, for every meter
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
@@ -110,8 +112,9 @@ src-tauri/src/
   pill.rs                    the pill's window: a panel over every app that never takes focus
   shortcuts.rs               holds the global shortcuts the page names
   paste.rs                   presses the paste keys, when macOS allows it
+  autostart.rs               asks the system to open Whispering at login
   media.rs, media/           pauses and resumes the system's media, per platform
-  main.rs                    commands and plugins
+  main.rs                    commands, plugins, and what closing the window does
 ```
 
 The layers answer different questions:
@@ -225,6 +228,24 @@ The layers answer different questions:
   hands-free going on and off.** They are two notes made in the page.
   Refused: a sound for each hands-free phrase, which the open microphone
   would record into the next take.
+- **Closing the window does not stop dictation on a Mac.** The window
+  hides, the app stays in the Dock with its shortcuts working, and a click
+  on the Dock icon brings the window back. Opened by the system at login,
+  it starts hidden the same way. Elsewhere, closing the window quits.
+  Refused: letting the window be destroyed, which left the app running on
+  the pill's hidden window with no page to hear a shortcut.
+- **Whether Whispering opens at login is the system's to remember.** The
+  switch asks the system and changes it there; nothing in `settings.json`
+  repeats it, so the two cannot disagree.
+- **Escape cancels a take, and is held only while one records.** Outside
+  a take Whispering does not hold the key, so Escape is every other
+  app's. Rust leaves a shortcut alone when its keys have not changed, so
+  holding and letting go of Escape never drops a hold-to-talk release.
+  Refused: a cancel chord held all the time, one more shortcut to learn
+  for something only ever wanted during a take.
+- **The language dictated in is one setting, sent to whatever takes it.**
+  `transcription.language` is a two-letter code or empty to detect; it
+  reaches a Whisper model and a server, and Parakeet ignores it.
 - **A shortcut is a chord the system holds, and hold to talk is a chord
   held down.** `settings.json` names three (`shortcut.toggle`,
   `shortcut.hold`, `shortcut.handsFree`); Rust holds them and sends each

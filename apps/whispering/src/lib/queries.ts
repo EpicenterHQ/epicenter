@@ -14,7 +14,7 @@ import { Ok } from 'wellcrafted/result';
 import { recordings } from './data/recordings';
 import { settings } from './data/settings';
 import { textFiles } from './data/text-files';
-import { local, paste, recorder, servers } from './platform/index';
+import { autostart, local, paste, recorder, servers } from './platform/index';
 
 export const queryClient = new QueryClient({
 	defaultOptions: {
@@ -94,6 +94,17 @@ export const pasteQueries = resultQueries(['paste'], {
 });
 
 queryClient.setQueryDefaults(pasteQueries.allowed.key, { staleTime: 0 });
+
+/** Whether the system opens Whispering at login; the system holds the answer. */
+export const autostartQueries = resultQueries(['autostart'], {
+	enabled: async () => Ok(await autostart.enabled()),
+});
+
+export const autostartMutations = resultMutations(['autostart'], {
+	set: ({ on }: { on: boolean }) => autostart.set(on),
+});
+
+queryClient.setQueryDefaults(autostartQueries.enabled.key, { staleTime: 0 });
 
 /** The microphones connected now. Asked again each time a screen opens it. */
 export const microphonesQueries = resultQueries(['microphones'], {

@@ -11,6 +11,7 @@
  * | `copyText` | the clipboard plugin, which works while another app is in front | the page's clipboard |
  * | `shortcuts` | keys that work from any app, held in Rust (`shortcuts.rs`) | none |
  * | `paste` | presses the paste keys in the app in front (`paste.rs`) | none |
+ * | `autostart` | the system opens Whispering at login (`autostart.rs`) | none |
  * | `media` | pauses music and video for a take (`media.rs`) | none |
  * | `pill` | a floating window over every app (`pill.rs`) | none |
  *
@@ -22,6 +23,8 @@
  */
 import { isTauri } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { browserAutostart } from './autostart/browser';
+import { nativeAutostart } from './autostart/native';
 import { opfsFiles } from './files/opfs';
 import { tauriFiles } from './files/tauri';
 import { browserLocal } from './local/browser';
@@ -47,6 +50,7 @@ export const servers = desktop ? nativeServers : createBrowserServers(files);
 export const local = desktop ? nativeLocal : browserLocal;
 export const pill = desktop ? nativePill : browserPill;
 export const media = desktop ? nativeMedia : browserMedia;
+export const autostart = desktop ? nativeAutostart : browserAutostart;
 export const paste = desktop ? nativePaste : browserPaste;
 export const shortcuts = desktop ? nativeShortcuts : browserShortcuts;
 export const copyText = desktop

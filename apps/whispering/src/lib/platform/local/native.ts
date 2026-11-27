@@ -62,13 +62,14 @@ export const nativeLocal: Local = {
 
 	reveal: (id) => run<void>(plugin('reveal_model'), { modelId: id }),
 
-	transcribe: (id, model, prompt) =>
+	transcribe: (id, model, { prompt, language }) =>
 		tryAsync({
 			try: () =>
 				invoke<string>('transcribe_local', {
 					id,
 					model,
 					prompt: prompt ?? null,
+					language: language ?? null,
 				}),
 			catch: (cause) =>
 				isLocalError(cause) ? Err(cause) : LocalFailure.Failed({ cause }),

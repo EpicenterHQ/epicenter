@@ -14,6 +14,7 @@ const NONE: Record<ShortcutName, string> = {
 	toggle: '',
 	hold: '',
 	handsFree: '',
+	cancel: '',
 };
 
 let problems = $state<Partial<Record<ShortcutName, string>>>({});
@@ -44,6 +45,7 @@ export const shortcutHolds = {
 					toggle: first,
 					hold: twice.hold ? '' : second,
 					handsFree: twice.handsFree ? '' : third,
+					cancel: keys.cancel,
 				};
 		const unheld = await shortcuts.set(wanted).catch(() => ({}));
 		problems = { ...unheld, ...twice };

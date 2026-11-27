@@ -459,11 +459,14 @@ function createDictation() {
 				(await runQuery(queryClient, textFilesQueries.read(DICTIONARY))).data ??
 					'',
 			);
-			const prompt = hintPrompt(words.hints);
+			const hints = {
+				prompt: hintPrompt(words.hints),
+				language: settings['transcription.language'] || undefined,
+			};
 			const { data: heard, error } =
 				chosen.kind === 'local'
-					? await local.transcribe(id, chosen.model, prompt)
-					: await servers.transcribe(id, chosen, prompt);
+					? await local.transcribe(id, chosen.model, hints)
+					: await servers.transcribe(id, chosen, hints);
 			if (gone()) return;
 			if (error) {
 				/** What Settings can fix, and what the pill calls it. */
@@ -645,6 +648,7 @@ function createDictation() {
 		press(name: ShortcutName, down: boolean) {
 			if (name === 'hold') return this.hold(down);
 			if (!down) return;
+			if (name === 'cancel') return void cancel();
 			if (name === 'toggle') return this.toggle('shortcut');
 			setHandsFree(!listening);
 		},

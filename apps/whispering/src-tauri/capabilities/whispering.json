@@ -25,6 +25,8 @@
 		"allow-complete",
 		"allow-transcribe-local",
 		"allow-shortcuts-set",
+		"allow-autostart-enabled",
+		"allow-autostart-set",
 		"allow-pause-playback",
 		"allow-resume-playback",
 		"allow-paste-allowed",

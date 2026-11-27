@@ -2,13 +2,14 @@
 	Settings · Transcription. What turns a recording into text: a model on
 	this computer, or a server. Both stay set up; the choice here says which
 	one transcribes. A browser tab cannot run a model, so it shows the
-	server alone.
+	server alone. The language dictated in applies to either.
 -->
 <script lang="ts">
 	import * as Select from '@epicenter/ui/select';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { runMutation } from 'wellcrafted/query';
+	import { LANGUAGES } from '#lib/languages.ts';
 	import { local } from '#lib/platform/index.ts';
 	import { queryClient, settingsMutations, settingsQueries } from '#lib/queries.ts';
 	import SettingsRow from '../SettingsRow.svelte';
@@ -20,6 +21,15 @@
 	const provider = $derived(
 		local.available ? (settings.data?.['transcription.provider'] ?? 'local') : 'server',
 	);
+
+	const language = $derived(settings.data?.['transcription.language'] ?? '');
+
+	async function chooseLanguage(code: string) {
+		const saved = await runMutation(queryClient, settingsMutations.update, {
+			'transcription.language': code,
+		});
+		toastOnError(saved, 'Could not save the language');
+	}
 
 	async function choose(value: string) {
 		if (value !== 'local' && value !== 'server') return;
@@ -53,6 +63,25 @@
 		</SettingsRow>
 	</SettingsSection>
 {/if}
+
+<SettingsSection title="Language">
+	<SettingsRow
+		label="I dictate in"
+		description="Detecting it suits switching between languages, and can guess wrong on a take of a few words. Parakeet always detects it."
+		for="language"
+	>
+		<Select.Root type="single" value={language} onValueChange={(code) => void chooseLanguage(code)}>
+			<Select.Trigger id="language" class="w-44">
+				{LANGUAGES.find((known) => known.code === language)?.name ?? language}
+			</Select.Trigger>
+			<Select.Content class="max-h-72">
+				{#each LANGUAGES as known (known.code)}
+					<Select.Item value={known.code}>{known.name}</Select.Item>
+				{/each}
+			</Select.Content>
+		</Select.Root>
+	</SettingsRow>
+</SettingsSection>
 
 {#if provider === 'local'}
 	<LocalModels />

@@ -124,7 +124,7 @@ export function createBrowserServers(files: Files): Servers {
 	return {
 		keyKeptIn: 'this browser',
 
-		async transcribe(id, { baseUrl, model }, prompt) {
+		async transcribe(id, { baseUrl, model }, { prompt, language }) {
 			let audio: { blob: Blob; name: string } | undefined;
 			for (const extension of AUDIO) {
 				const url = await files.url(`recordings/${id}.${extension}`);
@@ -143,6 +143,7 @@ export function createBrowserServers(files: Files): Servers {
 			const form = new FormData();
 			form.append('model', model);
 			if (prompt) form.append('prompt', prompt);
+			if (language) form.append('language', language);
 			form.append('file', audio.blob, audio.name);
 			return post(
 				baseUrl,

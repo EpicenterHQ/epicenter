@@ -13,6 +13,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
+import type { TranscriptionHints } from '../servers/servers';
 
 /** A model Whispering can run here, and whether its file is downloaded. */
 export type LocalModel = {
@@ -64,11 +65,11 @@ export type Local = {
 	reveal(id: string): Promise<Result<void, LocalFailure>>;
 	/**
 	 * The text of the recording `id`, from `model`; empty when the audio
-	 * holds no sound. `prompt` reaches only a model that takes one.
+	 * holds no sound. Each hint reaches only a model that takes it.
 	 */
 	transcribe(
 		id: string,
 		model: string,
-		prompt: string | undefined,
+		hints: TranscriptionHints,
 	): Promise<Result<string, LocalError | LocalFailure>>;
 };

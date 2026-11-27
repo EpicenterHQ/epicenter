@@ -7,12 +7,14 @@
  * {
  * 	"transcription.provider": "server",
  * 	"transcription.local.model": "...",
+ * 	"transcription.language": "",
  * 	"transcription.server.baseUrl": "https://api.openai.com/v1",
  * 	"transcription.server.model": "whisper-1",
  * 	"microphone": null,
  * 	"shortcut.toggle": "CommandOrControl+Shift+Semicolon",
  * 	"shortcut.hold": "",
  * 	"shortcut.handsFree": "",
+ * 	"shortcut.escapeCancels": true,
  * 	"output.paste": false,
  * 	"output.pauseMedia": false,
  * 	"output.sounds": false,
@@ -53,6 +55,12 @@ const SCHEMA = Type.Object({
 		default:
 			'handy-computer/parakeet-tdt-0.6b-v3-gguf@main/parakeet-tdt-0.6b-v3-Q4_K_M.gguf',
 	}),
+	/**
+	 * The language dictated in, as a two-letter code (`languages.ts`); empty
+	 * to have it detected. It reaches a Whisper model and a server; Parakeet
+	 * always detects.
+	 */
+	'transcription.language': Type.String({ default: '' }),
 	/** The OpenAI-compatible server's address; empty until one is saved. */
 	'transcription.server.baseUrl': Type.String({ default: '' }),
 	'transcription.server.model': Type.String({ default: '' }),
@@ -72,6 +80,8 @@ const SCHEMA = Type.Object({
 	'shortcut.hold': Type.String({ default: '' }),
 	/** Turns hands-free on and off. */
 	'shortcut.handsFree': Type.String({ default: '' }),
+	/** Whether Escape throws away the take under way. */
+	'shortcut.escapeCancels': Type.Boolean({ default: true }),
 	/**
 	 * Whether a finished take is also pasted where the person is typing.
 	 * The text is on the clipboard either way.
