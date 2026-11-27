@@ -28,7 +28,7 @@
   <a href="#try-the-cli">Try the CLI</a> |
   <a href="#how-it-works">How it works</a> |
   <a href="#status">Status</a> |
-  <a href="#trust-boundaries">Trust</a> |
+  <a href="docs/vision.md#who-can-read-your-files">Trust</a> |
   <a href="#repo-map">Repo map</a> |
   <a href="#development">Development</a> |
   <a href="#license">License</a>
@@ -189,8 +189,8 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 Epicenter is free and open source under the
 [AGPL](licenses/LICENSE-AGPL-3.0). Feel free to use it, change it, and run it
 for yourself however you like. Our only ask is that if you share it with
-others, whether you give it away, sell it, or run it as a service for them, you
-must share your source under the same license, so your improvements can come
+others, whether you give it away, sell it, or run a changed version as a
+service for them, you must share your source under the same license, so your improvements can come
 back to the community.
 
 If you or your team want a hand setting it up or building your apps, I plan to
