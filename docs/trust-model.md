@@ -1,8 +1,7 @@
 # Trust model
 
-Your Epicenter is on your computer, and whoever can read your computer can read it.
-Nothing is encrypted, nothing syncs, and `epicenter serve` signs no one in.
-That is the trust model, and everything below follows from it.
+Whoever can read your computer can read your Epicenter. Epicenter relies on
+your computer for encryption at rest. `epicenter serve` signs no one in.
 
 This page describes what the code does today, in `packages/app`
 and its command, `packages/app/src/command`. [The vision](vision.md) names the pieces. The computer is one its person
@@ -10,15 +9,13 @@ controls, owned or rented.
 
 ## Your computer
 
-Your computer is the one `~/Epicenter` is on. Its person holds root on it, and
-it runs only the code they trust. An app's records are Markdown files under
-its `data/`, in a Git repository on your computer, and nothing in Epicenter
-encrypts them.
+Your computer is the one `~/Epicenter` is on. Its person holds root on it and
+chooses the code it runs.
 
 | Computer | Who can read your files |
 | --- | --- |
 | One you own, such as a Mac you keep on | You, and whatever you let in: a user account, a backup tool, an agent you give a shell. |
-| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, your Epicenter's `local/` folder included. Epicenter adds nothing against that. |
+| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, including `.epicenter/`. |
 
 Choosing where to rent a computer is choosing who can read it, in the way choosing
 which agents get a shell is.
@@ -35,8 +32,9 @@ requests from other sites in a browser, and the tunnels it can recognize
 tunnel it cannot recognize would reach it with no sign-in, so never tunnel
 its port.
 
-Your other devices keep nothing. An agent on your phone or your laptop sees
-the files only while it reaches your computer, through actions.
+Some apps store a copy on a device for offline use. Whoever can read that
+device's browser storage can read those copies. The app decides what to keep
+there. [Where edits count](vision.md#where-edits-count)
 
 `serve` also sends the Epicenter's `AGENTS.md` to every MCP client as its
 instructions, so anything written there reaches each agent that connects.
@@ -54,33 +52,22 @@ program you install.
 
 ## Sign-ins are files that stay on your computer
 
-An app keeps a sign-in, such as a Google token, in a file it writes under your
-Epicenter's root `local/`, which stays out of Git
-([the Epicenter's rules](../packages/app/README.md#the-home)); list `/local/` in
-the root `.gitignore` too, for an app that makes the folder itself.
-Epicenter never commits, so a file there reaches a backup or a clone only if
-someone adds it by force. It is a plain file, though: anyone who can read your
-computer can read it, the provider of a rented computer included.
+An app can keep a sign-in, such as a Google token, under `.epicenter/` on
+the computer that runs its actions. Serve keeps this folder private to your
+user account and out of Git. Anyone with access to its files can read them,
+including the provider of a rented computer. [Local app state](../packages/app/README.md#this-computers-state)
 
 ## Backups
 
-Your Epicenter has one private root Git repository holding its `epicenter.ts`,
-every app's code in `apps/`, and the records in `data/`. Its `origin` is an
-optional push-only backup. Agents edit the working files; the commits you
-make record them. No command publishes or copies an app out; sharing one is
-copying its `apps/<app>/` folder with ordinary tools, which carries none of
-the records. Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
-your own Git server, can read what is pushed: every committed file and its
-history, never a file under `local/`.
+Whoever hosts your Git backup can read what you push, including committed
+files and their history. A separate computer backup may also include app
+state and sign-ins. [What you can recover](vision.md#where-edits-count)
 
 ## Outside apps
 
-A service such as Gmail already holds its own data. An inside app brings it to
-your Epicenter only by a pull, which copies items inward and never writes the
-source. The author's Mail app, which is not in this repository, keeps its
-mailbox as a SQLite cache under your Epicenter's `local/`. A change to the service
-is an action you run, such as Mail's `epicenter mail apply`, which changes
-Gmail through your own sign-in.
+A service such as Gmail holds its own data. An app can read or change it
+through an action using your sign-in. Your local copies follow the same
+access rules as the other files on your computer.
 
 ## A model sees what you send it
 
