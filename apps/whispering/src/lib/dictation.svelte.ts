@@ -39,6 +39,9 @@ import {
 	textFilesQueries,
 } from './queries';
 
+/** A hold-to-talk press shorter than this is not a take. */
+const TAP_MS = 300;
+
 /** How long a take may send only silence before the screens point it out. */
 const QUIET_MS = 3000;
 
@@ -99,6 +102,8 @@ function createDictation() {
 	 * of the app only: nothing in the settings opens a microphone at launch.
 	 */
 	let listening = $state(false);
+	/** Whether the hold-to-talk keys are down now. */
+	let holding = false;
 
 	async function start(trigger: Trigger) {
 		take = { kind: 'starting' };
@@ -134,6 +139,8 @@ function createDictation() {
 			return toastOnError(error, 'Could not start recording');
 		}
 		take = { kind: 'recording', startedAt, trigger };
+		// Let go while the microphone was opening: nothing was said into it.
+		if (trigger === 'hold' && !holding) await cancel();
 	}
 
 	async function stop() {
@@ -433,8 +440,6 @@ function createDictation() {
 
 	return {
 		take: () => take,
-		/** The start-and-stop shortcut is fixed in `main.rs`; hold to talk is not built yet. */
-		keys: () => ({ toggle: '⌘⇧;' }),
 		level: () => level,
 		silent: () => silent,
 		handsFree: (): HandsFree =>
@@ -451,6 +456,21 @@ function createDictation() {
 			if (listening) return void unlisten();
 			if (take.kind === 'idle') return void start(trigger);
 			if (take.kind === 'recording') return void stop();
+		},
+
+		/**
+		 * The hold-to-talk keys went down, or came up. Down starts a take
+		 * and up finishes it; one let go within `TAP_MS` was a slip of the
+		 * hand, and is thrown away.
+		 */
+		hold(down: boolean) {
+			holding = down;
+			if (down) {
+				if (take.kind === 'idle' && !listening) void start('hold');
+				return;
+			}
+			if (take.kind !== 'recording' || take.trigger !== 'hold') return;
+			void (Date.now() - take.startedAt < TAP_MS ? cancel() : stop());
 		},
 
 		cancel: () => void cancel(),

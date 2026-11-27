@@ -16,8 +16,10 @@
 	import { page } from '$app/state';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { transcriber } from '#lib/data/settings.ts';
-	import { type Need, setDictation } from '#lib/dictation-view.ts';
-	import { local, onShortcut, pill } from '#lib/platform/index.ts';
+	import { type Keys, type Need, setDictation } from '#lib/dictation-view.ts';
+	import { local, pill, shortcuts } from '#lib/platform/index.ts';
+	import { isMac, shortcutLabel } from '#lib/shortcut.ts';
+	import { shortcutHolds } from '#lib/shortcut-holds.svelte.ts';
 	import { runQuery } from 'wellcrafted/query';
 	import { modelsQueries, queryClient, settingsQueries } from '#lib/queries.ts';
 	import AppSidebar from './AppSidebar.svelte';
@@ -67,7 +69,21 @@
 			},
 		];
 	});
-	setDictation({ ...dictation, needs: () => needs });
+
+	/** The shortcuts' keys, as `settings.json` writes them. */
+	const toggleKeys = $derived(settings.data?.['shortcut.toggle'] ?? '');
+	const holdKeys = $derived(settings.data?.['shortcut.hold'] ?? '');
+	const handsFreeKeys = $derived(settings.data?.['shortcut.handsFree'] ?? '');
+	/** The shortcuts as a person reads them; one that is off or not held is left out. */
+	const keys = $derived<Keys>({
+		toggle: shortcuts.available && !shortcutHolds.problem('toggle') ? shortcutLabel(toggleKeys, isMac()) : '',
+		hold:
+			shortcuts.available && holdKeys && !shortcutHolds.problem('hold')
+				? shortcutLabel(holdKeys, isMac())
+				: undefined,
+	});
+	const view = { ...dictation, needs: () => needs, keys: () => keys };
+	setDictation(view);
 
 	/**
 	 * A narrow window keeps the sidebar folded to its icons, so the page has
@@ -76,8 +92,22 @@
 	const wide = new MediaQuery('min-width: 768px');
 	let sidebarOpen = $state(true);
 
-	// The start-and-stop shortcut does what the Record button does, from any app.
-	$effect(() => onShortcut(() => dictation.toggle('shortcut')));
+	// Hold the shortcuts the settings name, again whenever one changes or
+	// the Shortcuts page stops reading a new one.
+	$effect(() => {
+		if (!settings.data) return;
+		shortcutHolds.paused();
+		void shortcutHolds.apply({ toggle: toggleKeys, hold: holdKeys, handsFree: handsFreeKeys });
+	});
+	// What each shortcut does, from any app.
+	$effect(() =>
+		shortcuts.onPress((name, down) => {
+			if (name === 'hold') return dictation.hold(down);
+			if (!down) return;
+			if (name === 'toggle') return dictation.toggle('shortcut');
+			dictation.setHandsFree(dictation.handsFree().kind !== 'listening');
+		}),
+	);
 
 	// The floating pill shows the take from any app and sends back what was pressed.
 	$effect(() => {
@@ -88,7 +118,7 @@
 			level: dictation.level(),
 			silent: dictation.silent(),
 			handsFree: dictation.handsFree(),
-			keys: dictation.keys(),
+			keys,
 			cleaning: outcome.kind === 'transcribing' && dictation.isCleaning(outcome.id),
 		});
 	});

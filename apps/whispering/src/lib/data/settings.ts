@@ -10,6 +10,9 @@
  * 	"transcription.server.baseUrl": "https://api.openai.com/v1",
  * 	"transcription.server.model": "whisper-1",
  * 	"microphone": null,
+ * 	"shortcut.toggle": "CommandOrControl+Shift+Semicolon",
+ * 	"shortcut.hold": "Alt+Space",
+ * 	"shortcut.handsFree": "",
  * 	"cleanup.enabled": false,
  * 	"cleanup.baseUrl": "",
  * 	"cleanup.model": ""
@@ -53,6 +56,17 @@ const SCHEMA = Type.Object({
 	 * something only on the computer that listed it.
 	 */
 	microphone: Type.Union([Type.String(), Type.Null()], { default: null }),
+	/**
+	 * The keys that record from any app, as the desktop app's shortcut
+	 * parser reads them (`shortcut.ts`). An empty one is off.
+	 */
+	'shortcut.toggle': Type.String({
+		default: 'CommandOrControl+Shift+Semicolon',
+	}),
+	/** Records while held. */
+	'shortcut.hold': Type.String({ default: 'Alt+Space' }),
+	/** Turns hands-free on and off. */
+	'shortcut.handsFree': Type.String({ default: '' }),
 	/** Whether each transcript goes to the cleanup model. Off keeps the model saved. */
 	'cleanup.enabled': Type.Boolean({ default: false }),
 	/**

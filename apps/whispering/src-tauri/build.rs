@@ -16,6 +16,7 @@ fn main() {
         "complete",
         "transcribe_local",
         "pill_show",
+        "shortcuts_set",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build Whispering's Tauri manifest");

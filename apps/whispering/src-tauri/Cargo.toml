@@ -27,7 +27,7 @@ tauri-plugin-clipboard-manager = "2.5"
 tauri-plugin-epicenter-transcription = { path = "../../whispering-old/packages/transcription" }
 tauri-plugin-epicenter-recorder = { path = "../../whispering-old/packages/tauri-plugin-epicenter-recorder" }
 tauri-plugin-fs = "2.7"
-# Holds ⌘⇧; from any app to start and stop a recording (`main.rs`).
+# Holds the shortcuts that reach Whispering from any app (`shortcuts.rs`).
 tauri-plugin-global-shortcut = "2.4"
 # Shows a downloaded model's folder, for the transcription plugin's `reveal_model`.
 tauri-plugin-opener = "2.5"

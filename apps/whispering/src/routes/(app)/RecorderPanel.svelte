@@ -79,8 +79,10 @@
 							Let go of <Key keys={keys.hold} /> to finish
 						{:else if take.trigger === 'voice'}
 							Pause when you're done, and the take ends
-						{:else}
+						{:else if keys.toggle}
 							Press <Key keys={keys.toggle} /> again to finish
+						{:else}
+							Press Stop to finish
 						{/if}
 					</p>
 				{/if}
@@ -93,11 +95,19 @@
 				<p class="text-2xl font-semibold">Listening</p>
 				<p class="text-sm text-muted-foreground">Start talking whenever you're ready. A pause ends the take.</p>
 			{:else}
-				<p class="text-2xl font-semibold">Press <Key keys={keys.toggle} /> and start talking</p>
-				<p class="text-sm text-muted-foreground">
-					Works from any app. Press again, and the text is on your clipboard.
-					{#if keys.hold}Or hold <Key keys={keys.hold} /> while you talk.{/if}
-				</p>
+				{#if keys.toggle}
+					<p class="text-2xl font-semibold">Press <Key keys={keys.toggle} /> and start talking</p>
+					<p class="text-sm text-muted-foreground">
+						Works from any app. Press again, and the text is on your clipboard.
+						{#if keys.hold}Or hold <Key keys={keys.hold} /> while you talk.{/if}
+					</p>
+				{:else}
+					<p class="text-2xl font-semibold">Press the microphone and start talking</p>
+					<p class="text-sm text-muted-foreground">
+						Press it again, and the text is on your clipboard.
+						{#if keys.hold}Or hold <Key keys={keys.hold} /> while you talk.{/if}
+					</p>
+				{/if}
 			{/if}
 		</div>
 

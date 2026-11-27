@@ -86,7 +86,7 @@ export type Need = {
 
 /** The shortcuts that record from any app, as a person reads them: `⌘⇧;`. */
 export type Keys = {
-	/** Starts a take, and stops it. */
+	/** Starts a take, and stops it; empty where no shortcut does, as in a browser tab. */
 	toggle: string;
 	/** Records while held; undefined while there is none. */
 	hold?: string;

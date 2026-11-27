@@ -86,7 +86,7 @@
 	 */
 	const viewOf = (shown: () => Scene, landedAt: () => number): DictationView => ({
 		take: () => shown().take ?? { kind: 'idle' },
-		keys: () => ({ toggle: '⌘⇧;', hold: '⌥Space' }),
+		keys: () => ({ toggle: '⌘⇧;', hold: '⌥ Space' }),
 		level: () => level,
 		silent: () => shown().silent ?? false,
 		handsFree: () => shown().handsFree ?? { kind: 'off' },

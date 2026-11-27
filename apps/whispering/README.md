@@ -26,7 +26,7 @@ keep them when space runs low (`navigator.storage.persist()`); a browser
 that says no may clear them.
 
 ```txt
-settings.json           one key per setting: what transcribes, the microphone, cleanup
+settings.json           one key per setting: what transcribes, the microphone, shortcuts, cleanup
 dictionary.txt          words to spell as written, and `heard -> written` fixes
 cleanup.md              your own cleanup prompt; without it, the built-in one
 recordings/<id>.md      the note: the text you got as the body; front matter holds
@@ -75,9 +75,12 @@ src/
       files/                 files.ts (contract), tauri.ts, opfs.ts
       recorder/              recorder.ts (contract), native.ts, browser.ts
       servers/               servers.ts (contract), native.ts, browser.ts
+      shortcuts/             shortcuts.ts (contract), native.ts, browser.ts: keys that work from any app
       local/                 local.ts (contract), native.ts, browser.ts: models on this computer
       pill/                  pill.ts (contract), native.ts, browser.ts: the two windows talking
     cleanup.ts               pure rules: the dictionary, when cleanup runs, what it is told
+    shortcut.ts              pure rules: a shortcut's keys from a key press, and as a person reads them
+    shortcut-holds.svelte.ts which shortcuts are held now, and why one is not
     loudness.ts              a microphone's level as how loud it sounds, for every meter
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
@@ -87,7 +90,8 @@ src-tauri/src/
   servers.rs                 transcription and cleanup requests, with the key
   local.rs                   transcribes a recording with a model on this computer
   pill.rs                    the pill's window: a panel over every app that never takes focus
-  main.rs                    commands, plugins, and the global shortcut
+  shortcuts.rs               holds the global shortcuts the page names
+  main.rs                    commands and plugins
 ```
 
 The layers answer different questions:
@@ -161,6 +165,15 @@ The layers answer different questions:
   listens, the Record button and the shortcut turn it off. Refused: a
   saved switch, which leaves a microphone open after a restart that the
   person did not ask for.
+- **A shortcut is a chord the system holds, and hold to talk is a chord
+  held down.** `settings.json` names three (`shortcut.toggle`,
+  `shortcut.hold`, `shortcut.handsFree`); Rust holds them and sends each
+  press and release, and the page decides what they do. A hold let go
+  within 300 ms is thrown away as a slip. A chord another app holds leaves
+  that one shortcut off and says so on its settings row. Refused: the Fn
+  key or a modifier alone, which the system's shortcut API cannot hold;
+  they need a raw keyboard listener and macOS's Accessibility grant, which
+  Whispering had and deleted (`docs/history.md`, 2026-06-18).
 - **The browser recorder turns voice processing off and writes on Stop.**
   Echo cancellation and noise suppression change the audio the server hears.
   Refused: writing chunks while recording, which would leave a half-written
