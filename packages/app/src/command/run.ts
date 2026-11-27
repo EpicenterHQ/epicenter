@@ -42,7 +42,7 @@ export async function answerCall(
 	options: CallOptions<unknown> = {},
 ): Promise<Answer> {
 	const started = performance.now();
-	const answer = await answerOnce(program, app, action, input, options);
+	const answer = await findAndRun();
 	// The logger catches a sink that throws, so the record cannot change the answer.
 	runLog.info('action call ended', {
 		app,
@@ -52,53 +52,47 @@ export async function answerCall(
 		message: answer.error?.message ?? null,
 	});
 	return answer;
-}
 
-async function answerOnce(
-	program: Program,
-	app: string,
-	action: string,
-	input: unknown,
-	options: CallOptions<unknown>,
-): Promise<Answer> {
-	if (program.problem)
-		return ActionError.NotStarted({
-			message: `${program.problem}\nFix it, then restart serve.`,
+	async function findAndRun(): Promise<Answer> {
+		if (program.problem)
+			return ActionError.NotStarted({
+				message: `${program.problem}\nFix it, then restart serve.`,
+			});
+		const found = Object.hasOwn(program.apps, app)
+			? program.apps[app]
+			: undefined;
+		if (!found)
+			return ActionError.NotStarted({
+				message: `There is no app "${app}"`,
+				next: 'epicenter',
+			});
+		const run = Object.hasOwn(found.actions, action)
+			? found.actions[action]
+			: undefined;
+		// A program from programOf has a compiled check for every action.
+		const check = run && program.inputChecks.get(run);
+		if (!run || !check) {
+			const names = Object.keys(found.actions);
+			return ActionError.NotStarted({
+				message: `${app} has no action ${JSON.stringify(action)}; ${names.length ? `its actions: ${names.join(', ')}` : 'it has none'}`,
+				next: `epicenter ${app}`,
+			});
+		}
+		const problem = inputProblem(check, run.input, input);
+		if (problem !== undefined)
+			return ActionError.NotStarted({
+				message: problem,
+				next: `epicenter ${app}`,
+			});
+		// A throw while running or while reading what the run returned, such as a
+		// getter on its error, means it ran and broke.
+		const ran = await tryAsync({
+			try: async () => answerOf(action, await run(input, options)),
+			catch: (cause) =>
+				ActionError.Threw({ message: extractErrorMessage(cause) }),
 		});
-	const found = Object.hasOwn(program.apps, app)
-		? program.apps[app]
-		: undefined;
-	if (!found)
-		return ActionError.NotStarted({
-			message: `There is no app "${app}"`,
-			next: 'epicenter',
-		});
-	const run = Object.hasOwn(found.actions, action)
-		? found.actions[action]
-		: undefined;
-	// A program from programOf has a compiled check for every action.
-	const check = run && program.inputChecks.get(run);
-	if (!run || !check) {
-		const names = Object.keys(found.actions);
-		return ActionError.NotStarted({
-			message: `${app} has no action ${JSON.stringify(action)}; ${names.length ? `its actions: ${names.join(', ')}` : 'it has none'}`,
-			next: `epicenter ${app}`,
-		});
+		return ran.error === null ? ran.data : ran;
 	}
-	const problem = inputProblem(check, run.input, input);
-	if (problem !== undefined)
-		return ActionError.NotStarted({
-			message: problem,
-			next: `epicenter ${app}`,
-		});
-	// A throw while running or while reading what the run returned, such as a
-	// getter on its error, means it ran and broke.
-	const ran = await tryAsync({
-		try: async () => answerOf(action, await run(input, options)),
-		catch: (cause) =>
-			ActionError.Threw({ message: extractErrorMessage(cause) }),
-	});
-	return ran.error === null ? ran.data : ran;
 }
 
 /**
