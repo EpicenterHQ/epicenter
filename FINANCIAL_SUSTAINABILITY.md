@@ -8,7 +8,7 @@ Epicenter is where one person's software lives: small apps you and your agents m
 
 Epicenter is paid for by services we host.
 
-A hosted service is something we run on our own servers for many people, the way Google runs Gmail. There is none today: the hosted API at `api.epicenter.so` (sign-in and AI inference paid for with credits) is retired for now. Hosted Notes may come next, if a month of real use shows the need. To your Epicenter, a service like this is an outside app, the same as Gmail: an app pulls a copy of what is there, or moves an item out of it into a folder you keep.
+A hosted service is something we run on our own servers for many people, the way Google runs Gmail. There is none today: the hosted API at `api.epicenter.so` (sign-in and AI inference paid for with credits) is retired for now. Hosted Notes may come next, if a month of real use shows the need. To your Epicenter, it works the same as Gmail: an app pulls a copy of what is there, or moves an item out of it into a folder you keep.
 
 Your Epicenter needs none of them. It runs on your computer, and if you don't have a computer you can leave on, a small rented Linux server can be one.
 

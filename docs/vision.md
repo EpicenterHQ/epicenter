@@ -7,7 +7,7 @@ or with an agent. Keep the work in files you can take with you.**
 Epicenter is where one person's software lives. `~/Epicenter` is on a computer
 you control and keep on. Today that is a computer you own. A rented
 one you control is allowed and gets its own setup later. Your Epicenter, the
-folder, is one private Git repository and one program: its root `epicenter.ts`
+folder, is one private Git repository and one Bun project: its root `epicenter.ts`
 declares the file-backed records and composes the apps. `epicenter serve` runs
 their actions on that computer. Your private network brings your other devices
 in. The package README shows the layout and a complete app.
@@ -48,40 +48,24 @@ writes no service job.
 
 ## Core invariants
 
-Epicenter assumes you have one computer you control and keep running. Your
-other devices reach it. The software is yours to change.
-
-These six commitments guide the design. Epicenter does not need to
+Six rules determine what Epicenter needs to handle, what it can leave to
+other tools, and which promises it gives up. Epicenter does not need to
 anticipate every need because you can change the software and compose it
 with other tools.
 
-| Commitment | What it lets us remove | What we give up |
+| Rule | What it lets us remove | What we give up |
 | --- | --- | --- |
-| **Your Epicenter lives on one computer you control and keep running.** Your devices and agents reach it through your private connection. | A full Epicenter on every device and a separate sign-in system for it. | Running actions while the computer is unreachable, automatic failover, and public access with separate caller permissions. |
-| **Every kind of record has one source of truth.** See [where edits count](#where-edits-count). | Reconciling independent stores that both claim to hold the same record. | Editing both an app's live data and its export and expecting the edits to merge. |
-| **One running Epicenter process executes every action.** The terminal, browser, and agents all call it. | Separate CLI execution and fallback; cross-process action locks and their waits. | Actions while `serve` is stopped; process isolation between apps; automatic transactions across a whole action. |
-| **What you make belongs in files you can use without Epicenter.** Apps record lasting outcomes; Git keeps their history. | Mandatory SDK access to records; a second platform store for run histories, replay, and receipts. | Automatic recovery of unsaved progress after a reload; an automatic audit of every attempt. An app saves any receipt it needs. |
-| **You can change the software you run.** Apps are editable code that you or your agents can inspect and adapt. You choose which code to trust. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | Configuring every behavior without code; isolation from a faulty app. You are responsible for what you run. |
-| **Epicenter composes tools that already do the job.** Git keeps history, Bun manages packages, and the operating system keeps Epicenter running. | Rebuilding version control, package management, and process supervision. | A platform-managed solution to every operational problem. Some work remains ordinary tool use. |
+| 1. **Your Epicenter is a folder, and every kind of record has one source of truth.** The folder is one Git repository and one Bun project. See [where edits count](#where-edits-count). | Reconciling independent stores that both claim to hold the same record. | Editing both an app's live data and its export and expecting the edits to merge. |
+| 2. **One running `serve` loads and runs all app code.** It reads code and packages when it starts, and you restart it to change them. The command, pages, and agents are its clients. | Separate CLI execution and fallback; cross-process action locks and their waits. | Actions while `serve` is stopped; process isolation between apps; automatic transactions across a whole action. |
+| 3. **What you make belongs in files you can use without Epicenter.** An action takes JSON and answers `{ data, error }`, and it is described in plain JSON. What must outlast the call goes in a file, and Git keeps its history. | Mandatory SDK access to records; a second platform store for run histories, replay, and receipts. | Automatic recovery of unsaved progress after a reload; an automatic audit of every attempt. An app saves any receipt it needs. |
+| 4. **Your Epicenter lives on one computer you control and keep running.** Your devices and agents reach it through your private connection. Sign-ins and caches stay there: `.epicenter/` keeps itself out of Git. Serve does not yet refuse a `.env` that Git would commit, so the owner's `.gitignore` guards it. | A full Epicenter on every device and a separate sign-in system for it. | Running actions while the computer is unreachable, automatic failover, and public access with separate caller permissions. |
+| 5. **The code is yours.** Apps are editable code that you or your agents can inspect and adapt. You choose which code to trust. The only setting is the port. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | Configuring every behavior without code; isolation from a faulty app. You are responsible for what you run. |
+| 6. **Epicenter does only what needs an app's declaration or the running `serve`.** Git keeps history, Bun manages packages, and the operating system keeps `serve` running. Everything else is a line in a README. One exception: where a skipped step fails silently and cannot be undone, Epicenter refuses or reports. It never repairs. | Rebuilding version control, package management, and process supervision. | A platform-managed solution to every operational problem. Some work remains ordinary tool use. |
 
-Six rules are the short form, for checking a proposal. Ask which rule
-already answers it. When the answer is that a tool or the owner does the
-work, the feature is a line of documentation, not code.
-
-1. Your Epicenter is a folder with one Git repository and one Bun project.
-   Each record has one [source of truth](#where-edits-count).
-2. Serve is the one program that loads and runs app code. It reads code and
-   packages when it starts, and you restart it to change them. The command,
-   pages, and agents are its clients.
-3. An action takes JSON and answers `{ data, error }`, and it is described
-   in plain JSON. What must outlast the call goes in a file.
-4. `.epicenter/` keeps itself out of Git. Serve does not yet refuse a `.env` that
-   Git would commit, so the owner's `.gitignore` guards it.
-5. The code is yours. The only setting is the port.
-6. Epicenter does only what needs an app's declaration or the running serve.
-   Everything else is a line in a README. One exception: where a skipped
-   step fails silently and cannot be undone, Epicenter refuses or reports.
-   It never repairs.
+To check a proposal, ask which rule already answers it. When the answer is
+that a tool or the owner does the work, the feature is a line of
+documentation, not code. A second source of truth for a record fails rule 1,
+and a second action runner fails rule 2.
 
 One place where edits count and one process running actions are different
 promises. Actions can overlap while waiting for a service. A platform file
@@ -131,7 +115,7 @@ the Outbox and run `epicenter mail apply` to send them to Gmail.
 
 | Way | What it does | Example |
 | --- | --- | --- |
-| pull | copies a source's items inward; never writes the source | Gmail, a Todoist inbox, Whispering's folder |
+| pull | copies a source's items inward; never writes the source | Gmail, a Todoist inbox |
 | move | writes a kept record carrying `from: <source>/<id>`, then closes the item at the source | a Todoist item becomes a task, then is completed in Todoist |
 | apply | changes the source through an action, then pulls what changed | Mail's `apply` |
 
@@ -141,7 +125,8 @@ elsewhere: recordings, arrivals in an inbox, received mail.
 
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
-in a personal app. Your home declares [scheduled actions](../packages/app/README.md#scheduled-actions)
+in a personal app: an app you made to join others, which holds the actions
+that cross them. Your home declares [scheduled actions](../packages/app/README.md#scheduled-actions)
 in `epicenter.ts`. Serve calls them while it runs.
 
 | You want | Reach for |
@@ -152,8 +137,8 @@ in `epicenter.ts`. Serve calls them while it runs.
 
 For an app's shape, start from the `writing` example in
 [`@epicenter/app`'s README](../packages/app/README.md#a-home). This
-repository ships no inside apps; Mail (cached) and Messages (live) are the
-author's and are not published.
+repository ships no apps for an Epicenter: `apps/whispering` is a program.
+Mail (cached) and Messages (live) are the author's and are not published.
 
 ## Ways in
 
@@ -207,38 +192,32 @@ author's apps and do not ship here.
 | Noun | What it is |
 | --- | --- |
 | Epicenter | the folder `~/Epicenter` on your computer, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
-| an inside app | a function of your Epicenter's data, usually in `~/Epicenter/apps/<app>/`, that returns its description and actions; the root `epicenter.ts` composes it into `defineEpicenter({ apps })`, and its key there is its name; bare "app" on this page, in records, and in code means this |
+| your computer | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or under a job the person sets up ([serve's rules](../packages/app/README.md#running-the-home)); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
+| an app | a function of your Epicenter's data, usually in `~/Epicenter/apps/<app>/`, that returns its description and actions; the root `epicenter.ts` composes it into `defineEpicenter({ apps })`, and its key there is its name |
 | a data key | a kind of record in your Epicenter, declared in the root `epicenter.ts` with `defineData`: a folder (`words` holds `data/words/<id>.md`) and its fields; its handle has `list`, `get`, `create`, `patch`, `edit`, and `delete`, which an app's actions call |
 | a record | one piece of your work, such as a word, note, or task. A file-backed record is one file of a data key |
-| an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
-| a field | JSON Schema for one value, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do, written with `defineAction`; it is a command in the terminal and a tool over MCP |
-| an app's page | a web page that shows an app's data and calls its actions over HTTP |
-| `epicenter` | the command: it sends an action to your Epicenter's running `serve`, which offers every app over MCP and HTTP |
-| a personal app | an app you made to join other apps: it holds the actions that cross them |
-| an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
-| a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's data declares, in its own folder, and none has to |
-| your computer | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal or under a job the person sets up ([serve's rules](../packages/app/README.md#running-the-home)); today one you own, and a rented one, later, puts your files and sign-ins in its provider's hands |
-| a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
+| a program | software that runs on your device and needs no Epicenter: Whispering; the friendliest writes files in a shape your `epicenter.ts` declares, and none has to |
+| a service | software on someone else's servers that holds the truth of its own data: Gmail, Beeper, Todoist |
 | a source | where a pull copies from: a service, or a program's folder |
-| Git | one private root history of the commits you make, optional origin backup, LFS for binaries |
+| an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 
-Every app is inside an Epicenter or outside it. The test: does it work
-without an Epicenter? If it does, it is an outside app. Data crosses only
-through an inside app's actions: Mail brings Gmail in, and Gmail does nothing.
-A product can have both halves: Whispering is an outside app, and Whispering's
-inside app is the `whispering` app in an Epicenter.
+An app is code in your Epicenter. Everything else is a program or a
+service, and it works without an Epicenter. Data crosses only through an
+app's actions or through files in the documented shape: Mail brings Gmail in,
+and Gmail does nothing. Whispering is a program; pointed at `data/`, it needs
+no app, only data keys.
 
 "Epicenter" is the place, and `epicenter` is its command. "Server" means
 someone else's computer, and "hosted" means someone else runs it; yours is your
-computer, and an inside app runs on it.
+computer, and your apps run on it.
 
 Epicenter, the company, makes several products. Epicenter is the one that
 lives on your own computer. The others stand alone and choose their own data model, and each has its
 own name: Whispering is standalone, and a hosted notes service would not be
-called Epicenter and would sit beside the vault, not replace it. Each is an
-outside app, and an Epicenter can bring any of them in, the way Mail brings in
-Gmail. "Local-first" is only for a product whose devices sync.
+called Epicenter and would sit beside your Epicenter, not replace it. Each
+works without an Epicenter, and an Epicenter can bring any of them in, the way
+Mail brings in Gmail. "Local-first" is only for a product whose devices sync.
 
 ## Where code runs
 
@@ -270,14 +249,15 @@ Whispering is whole at rung 1.
 | Record history | a commit you make | never |
 | Back up your Epicenter | [back up the files and any live app stores you want to recover](#where-edits-count) | never |
 | Reach | MCP | never |
-| An interface | an agent or the terminal | you want to see or tap: an app's page. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
+| An interface | an agent or the terminal | you want to see or tap: an app's page, a web page that reads and changes the app only by calling its actions. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
 | Run something later | a scheduled action in `epicenter.ts` | catch-up after downtime |
 
 ## Next, not yet, and never
 
 **Next, in order, each tied to its need**:
 
-1. The vault on the current engine: its records as data keys and its
+1. The vault, the author's 3,400 pages of plain-file notes, on the current
+   engine: its records as data keys and its
    commands as actions, served from your computer and used from the phone for a
    month. Its files moved in on 2026-11-15; its code still runs on
    the retired engine.

@@ -1,6 +1,6 @@
 # Apps
 
-The apps in this folder are outside apps: each works without an Epicenter.
+The apps in this folder are programs: each works without an Epicenter.
 
 | App | What it is |
 | --- | --- |

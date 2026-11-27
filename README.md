@@ -72,8 +72,9 @@ private network, such as Tailscale, brings your other devices in. Your
 Epicenter can [schedule action calls](packages/app/README.md#scheduled-actions)
 while `serve` is running.
 
-Software that works without an Epicenter is an outside app: Gmail, Todoist,
-Whispering. An inside app can work with an outside app's data through actions.
+An app is code in your Epicenter. Software that works without one is a
+program, such as Whispering, or a service, such as Gmail or Todoist. An app
+can work with their data through actions.
 
 [The vision](docs/vision.md) | [What your Epicenter imports, and the `epicenter` command](packages/app/README.md)
 
@@ -84,10 +85,10 @@ depends on: an Epicenter is one Bun workspace, and its `package.json` names the
 version it runs. Each app is ordinary editable source.
 `serve` is one process; keep it running as you would any program.
 
-The author's inside apps (including Capture, Mail, Messages, Notes, Tasks,
+The author's apps (including Capture, Mail, Messages, Notes, Tasks,
 and Zhongwen) run in their own Epicenter, outside this runtime repository.
 
-Whispering, an outside app, runs in a browser tab and as a desktop app, and
+Whispering, a program, runs in a browser tab and as a desktop app, and
 needs no Epicenter. The hosted API is retired for now.
 
 The folder sync product that came before is retired. Some of its
@@ -102,7 +103,7 @@ read your records, including copies on other devices and in backups.
 
 ### Apps
 
-Applications under `apps/` are outside apps
+Applications under `apps/` are programs that work without an Epicenter
 ([apps/README.md](apps/README.md)).
 
 | App | What it is |
