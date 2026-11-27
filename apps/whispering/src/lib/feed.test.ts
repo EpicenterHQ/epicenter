@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { timeId } from '@epicenter/app/time';
 import {
 	dayLabel,
+	excerpt,
 	formatDuration,
 	groupByDay,
 	matches,
@@ -60,4 +61,33 @@ test('formatDuration', () => {
 	expect(formatDuration(42_000)).toBe('0:42');
 	expect(formatDuration(725_000)).toBe('12:05');
 	expect(formatDuration(3_725_000)).toBe('1:02:05');
+});
+
+describe('excerpt', () => {
+	const text =
+		'The quarterly numbers look fine, but we should move the launch to the week after the holidays.';
+
+	test('starts at the beginning with no query', () => {
+		expect(excerpt(text, '', 20)).toEqual([
+			{ text: 'The quarterly…', hit: false },
+		]);
+	});
+
+	test('centres on the first searched word and marks every one', () => {
+		const parts = excerpt(text, 'launch week', 40);
+		expect(parts.map((part) => part.text).join('')).toBe(
+			'…move the launch to the week after the…',
+		);
+		expect(parts.filter((part) => part.hit).map((part) => part.text)).toEqual([
+			'launch',
+			'week',
+		]);
+	});
+
+	test('marks a match whatever its case', () => {
+		expect(excerpt('Call Dana', 'dana').at(-1)).toEqual({
+			text: 'Dana',
+			hit: true,
+		});
+	});
 });

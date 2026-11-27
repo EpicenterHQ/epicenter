@@ -66,3 +66,41 @@ export function formatDuration(ms: number): string {
 	const s = String(total % 60).padStart(2, '0');
 	return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
 }
+
+/** A run of text, and whether it is a word the search asked for. */
+export type Part = { text: string; hit: boolean };
+
+/**
+ * The words of `text` around the first word of `query` it holds, about
+ * `width` characters, with each searched word marked, so a list row shows
+ * why it matched. With no query, or no match, the start of the text.
+ */
+export function excerpt(text: string, query: string, width = 80): Part[] {
+	const flat = text.replace(/\s+/g, ' ').trim();
+	const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+	const lower = flat.toLowerCase();
+	const first = Math.min(
+		...words.map((word) => lower.indexOf(word)).filter((at) => at >= 0),
+	);
+	let start = Number.isFinite(first)
+		? Math.max(0, first - Math.floor(width / 3))
+		: 0;
+	// Start on a word, not inside one.
+	if (start > 0) start = flat.indexOf(' ', start) + 1 || start;
+	let end = Math.min(flat.length, start + width);
+	// End on a word too, unless that leaves nothing.
+	if (end < flat.length)
+		end = flat.lastIndexOf(' ', end) > start ? flat.lastIndexOf(' ', end) : end;
+	const shown = `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`;
+	if (!words.length) return [{ text: shown, hit: false }];
+	const escaped = words.map((word) =>
+		word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+	);
+	return shown
+		.split(new RegExp(`(${escaped.join('|')})`, 'i'))
+		.filter(Boolean)
+		.map((piece) => ({
+			text: piece,
+			hit: words.includes(piece.toLowerCase()),
+		}));
+}
