@@ -193,9 +193,9 @@ others, whether you give it away, sell it, or run it as a service for them, you
 must share your source under the same license, so your improvements can come
 back to the community.
 
-Down the road, I plan to offer paid support for people and teams who want a
-hand setting it up or building their apps. That's how I hope to keep working
-on Epicenter.
+If you or your team want a hand setting it up or building your apps, I plan to
+offer paid support. I started Epicenter as a hobbyist building software for
+myself, and support is how I plan to keep it free for everyone doing the same.
 
 ---
 
