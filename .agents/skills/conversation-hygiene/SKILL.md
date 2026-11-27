@@ -1,123 +1,51 @@
 ---
 name: conversation-hygiene
-description: Triage and archive accumulated Codex conversations without losing wanted work. Use when cleaning up old Codex threads, deciding which conversations still need attention, or resuming a large conversation cleanup. Do not use for ordinary backlog capture, feature implementation, or issue-tracker cleanup.
+description: Clear out old Codex chats while preserving work the user still wants. Use when asked which chats can be archived, to clean up the chat list, or to resume a cleanup.
 ---
 
 # Conversation hygiene
 
-Clear tasks that no longer need attention while giving every still-wanted
-outcome a durable continuation. A task and an outcome have separate lifecycles:
-one outcome may span several tasks, and one task may contain several outcomes.
-Archiving is reversible; it does not delete the task.
+Use reversible Codex archiving to clear the active list. First handle the
+chats that are ready to archive. Then bring the user the decisions that remain.
 
-For each task in an archive proposal, ask: can the user stop paying attention
-to it without losing work they still want? The answer must be clear without
-opening the source conversation. Keep the fuller inventory and supporting
-evidence in the cleanup checkpoint, where the next pass can resume it.
+Read enough of each chat in scope to tell what the user wanted, what happened,
+and what still needs attention. Verify claimed completion and check that any
+existing chat, issue, or backlog entry actually covers the unfinished work.
+Leave running chats and chats the user expects to return to open.
 
-## Gather evidence in bounded batches
+For a large cleanup, collect chat IDs before archiving can shift the list.
+Keep a short checkpoint with the scope, reviewed chats, verified archives,
+and deferred decisions so you can pick up where you left off.
 
-Establish the repository or project scope. Use Codex thread tools to list and
-read tasks, and to archive and verify them. If those tools are unavailable,
-report the limit rather than claiming to have inspected or archived tasks.
-Treat titles, age, and summaries as discovery hints; read recent turns and
-relevant completion evidence. Earlier promises may require reading farther
-back. Check current code, decisions, specs, and backlog before treating a
-claimed implementation or destination as complete. An ADR alone does not prove
-implementation.
+## Pass 1: Clear to archive
 
-Inventory IDs before archiving so pagination shifts cannot skip candidates.
-Work in bounded batches and keep a checkpoint in the cleanup task or a linked
-working note: scope, inventory progress, reviewed IDs and reasons, preservation
-destinations, approved actions, verified archives, and unresolved cases. This
-checkpoint tracks cleanup progress, not product backlog. On resumption, recheck
-tasks with new activity and retry unconfirmed operations; do not reread an
-unchanged completed batch. Keep the cleanup task and running work active.
+Propose archives in manageable batches. A chat is ready when each thing the
+user wanted is complete, was set aside by the user, or has a verified place to
+continue. If the chat raises a decision the user still needs to make, hold it
+for the second pass. Passing suggestions can stay in the archived chat.
 
-For a large inventory across products or long histories, subagents may read
-bounded sets of exact IDs and return compact evidence about completion,
-remaining user intent, existing destinations, and uncertainty. Give them
-read-only work. The main agent verifies their findings against current task and
-repo state, integrates the proposal, and owns preservation and archiving. A
-small batch needs no delegation.
+Number each chat so the user can approve or hold it by number. Use its exact
+title, link it when you have a verified private Codex link, and mark it
+**Archive**. In one short explanation, say what the user wanted, why the chat
+can be archived, and where any unfinished work continues. Link to that work
+when possible.
 
-## Account for each outcome
+## Pass 2: Decisions that remain
 
-First decide whether work must continue in this task. Keep active implementation
-and conversations the user expects to resume there. A dirty worktree alone does
-not keep a task active; archiving never authorizes discarding its worktree,
-edits, or branch. Git status informs preservation; it does not decide whether
-the conversation still needs attention.
+Bring up only chats where the user's answer changes what happens next. Keep
+decision batches small and group chats that turn on the same answer. Use the
+same numbered, linked format. State the decision, give the minimum context
+needed to make it, and recommend what to do.
 
-For a task that no longer needs attention, account for every remaining outcome:
+Bring forward unfinished work that needs a place to continue and ideas with
+a concrete problem or opportunity worth revisiting. If you recommend saving
+something, show the exact wording you would add to the
+[backlog](../../../BACKLOG.md). Record where the work continues in the backlog
+entry. Follow the backlog’s conventions for when to remove the entry.
 
-- If nothing is still wanted, propose archive. Completion, a later accepted
-  decision, or deliberate abandonment can establish this; age and an agent's
-  tentative plan cannot.
-- If a wanted outcome is already durable, name its destination and propose
-  archive. Check that it actually preserves the remaining outcome. A related
-  ADR, partial commit, or backlog item is not enough by association.
-- If a wanted outcome exists nowhere durable, propose the smallest useful item
-  in the repository-root [backlog](../../../BACKLOG.md), then archive after its
-  preservation is confirmed. The backlog can hold a change, investigation, or
-  decision, including future work on skills or documentation. Do not extract
-  transcripts, agent plans, implementation guesses, or superseded ideas. If an
-  independently authorized edit has already completed the outcome, count that
-  as completion instead of creating a backlog item. Do not use `specs/` as a
-  backlog; specs are active design scaffolding with their own lifecycle.
-- If intent is unclear, explain the specific outcome and the evidence for and
-  against preserving it. Recommend a path and ask a focused question. The
-  answer determines whether to keep active, preserve then archive, or archive.
-  Continue independent clear cases while this one remains unresolved.
+## Apply and verify
 
-A new backlog item follows the shape of the existing entries:
-
-```markdown
-## <Outcome>
-
-- Desired result: <one concrete sentence>
-- Grounding: <ADR, issue, commit, file, or archived task link when useful>
-- Revisit when: <specific trigger, dependency, or product moment>
-```
-
-Omit fields that add no information, and keep the backlog short enough to scan.
-Record where the work continues in the backlog entry. Follow the backlog’s
-conventions for when to remove the entry.
-
-A blocked task can close when its wanted outcome has a destination and the user
-does not need to resume that task. Pinning, historical importance, and valuable
-reasoning do not by themselves require attention. When another active task owns
-the work, name it as the continuation. Completed delegations and reviews can
-close once their results and any remaining integration work are accounted for.
-
-## Propose a decision the user can make
-
-Lead with the scope and recommended batch in ordinary language. When confusion
-is possible, say that archiving changes the Codex task list, not the files or
-worktree. For each proposed archive, explain what the task settled and where
-any still-wanted work will continue. For a task that must stay active or has
-unclear intent, explain the specific reason and the decision that would change
-it. Give only the detail needed to test those claims without opening the source
-task. A simple closure may take one sentence; a task with several outcomes may
-need more. Group tasks only when they truly share a reason. Keep inventories,
-counts, and raw evidence in the checkpoint rather than making the user read an
-audit report. Ask only questions whose answers change the proposed action.
-
-After the readable judgments, show the exact archive IDs and proposed backlog
-edits as execution details before requesting approval when approval is
-required. An audit request alone is not permission to archive. Honor the user's
-standing approval preferences. Approval for one batch does not authorize the
-next batch.
-
-## Execute and close
-
-Once authorized, recheck each authorized task for new activity. Preserve
-authorized outcomes first and confirm the write succeeded. Archive only
-authorized IDs with Codex thread tools, then verify each in archived-task
-state. If preservation fails, leave its source task unarchived. Do not infer
-success from a mutation response alone.
-
-Report reviewed, archived, kept active, unresolved, failed, and not-yet-reviewed
-counts separately. Report backlog changes separately. Keep exact IDs, titles,
-reasons, destinations, and operation results in the checkpoint so the next
-batch starts from verified state.
+Archive only the chats the user authorized. Recheck them for new activity
+before acting. When a chat depends on a backlog edit, save and verify the
+entry before archiving it. Confirm each archive in Codex and report the
+result, including any chats you could not archive.

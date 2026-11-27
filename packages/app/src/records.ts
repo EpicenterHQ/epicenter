@@ -1,7 +1,7 @@
 import { join, parse } from 'node:path';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import { type Err, Ok, type Result } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { ActionError, type Misfit, type PublicError } from './answer.ts';
 import type { DataDef } from './data.ts';
 import {
@@ -103,13 +103,16 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	}
 
 	/**
-	 * The record `file` gives for `id`, and the result a read answers: the
-	 * record, or a Misfit with each problem and, when the front matter can be
-	 * read, the record for repair. Each field is its value if it fits, else
+	 * The record `file` gives for `id`, or a Misfit with each problem and,
+	 * when the front matter can be read, the record for repair.
+	 * Each field is its value if it fits, else
 	 * absent. `path`, `id` and `body` come from the file, and no field can be
 	 * named as one of them.
 	 */
-	function recordFrom(id: string, file: MarkdownFile) {
+	function recordFrom(
+		id: string,
+		file: MarkdownFile,
+	): Result<AnyRecord, Misfit> {
 		const path = pathOf(id);
 		const values: FieldValues = {};
 		const problems: string[] = file.readable ? [] : [UNREADABLE];
@@ -124,7 +127,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			else problems.push(valueProblem(key, schema, value));
 		}
 		const record: AnyRecord = { path, id, ...values, body: file.body };
-		const result: Result<AnyRecord, Misfit> = problems.length
+		return problems.length
 			? ActionError.Misfit({
 					path,
 					id,
@@ -132,7 +135,6 @@ export function createHandle(home: string, key: string, def: DataDef) {
 					...(file.readable ? { record } : {}),
 				})
 			: Ok(record);
-		return { record, result };
 	}
 
 	/**
@@ -141,7 +143,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 	function read(id: string): Result<AnyRecord | undefined, Misfit> {
 		const bytes = readBytes(join(home, pathOf(id)));
 		if (bytes === undefined) return Ok(undefined);
-		return recordFrom(id, readMarkdown(new TextDecoder().decode(bytes))).result;
+		return recordFrom(id, readMarkdown(new TextDecoder().decode(bytes)));
 	}
 
 	/** Split a patch into fields to set and remove, and check each supplied value. */
@@ -190,17 +192,17 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		const file = readMarkdown(before ?? '');
 		const current = before === undefined ? undefined : recordFrom(id, file);
 		const computed = typeof change === 'function';
-		if (current?.result.error && (computed || !file.readable))
-			return current.result;
+		if (current?.error && (computed || !file.readable)) return current;
 
-		let patch = change as Patch;
+		let patch: Patch;
 		if (computed) {
-			const result = change(structuredClone(current?.record)) as Result<
-				Patch,
-				PublicError
-			>;
+			const result = change(
+				structuredClone(current?.data ?? undefined),
+			) as Result<Patch, PublicError>;
 			if (result.error !== null) return result;
 			patch = result.data;
+		} else {
+			patch = change;
 		}
 
 		const { body, ...given } = patch;
@@ -215,10 +217,8 @@ export function createHandle(home: string, key: string, def: DataDef) {
 		const empty =
 			!Object.keys(set).length && !removed.length && body === undefined;
 		if (current && (empty || after === before))
-			return current.result.error
-				? current.result
-				: Ok({ value: current.record });
-		const next = recordFrom(id, readMarkdown(after)).result;
+			return current.error === null ? Ok({ value: current.data }) : current;
+		const next = recordFrom(id, readMarkdown(after));
 		// Nothing is written: say what the change would still leave wrong, and
 		// carry no record, since none was written.
 		if (next.error !== null)
@@ -235,7 +235,7 @@ export function createHandle(home: string, key: string, def: DataDef) {
 			change,
 			before && new TextDecoder().decode(before),
 		);
-		if (result.error !== null) return result as Err<PublicError>;
+		if (result.error !== null) return result;
 		const { value, text } = result.data;
 		// planWrite gives text only when it differs from the file's.
 		if (text !== undefined)
