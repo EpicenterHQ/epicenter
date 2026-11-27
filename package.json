@@ -20,6 +20,7 @@
 	"workspaces": {
 		"packages": [
 			"apps/*",
+			"apps/whispering/packages/*",
 			"apps/whispering-old/packages/*",
 			"packages/*"
 		],

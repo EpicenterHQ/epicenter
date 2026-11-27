@@ -24,8 +24,8 @@ percent-encoding = "2.3"
 serde_json = "1"
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2.7"
-tauri-plugin-epicenter-recorder = { path = "../packages/tauri-plugin-epicenter-recorder" }
-tauri-plugin-epicenter-transcription = { path = "../packages/transcription" }
+tauri-plugin-epicenter-recorder = { path = "../../whispering/packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-epicenter-transcription = { path = "../../whispering/packages/transcription" }
 tauri-plugin-fs = "2.4"
 tauri-plugin-global-shortcut = "2.3"
 tauri-plugin-http = "2.5"
@@ -34,7 +34,7 @@ tauri-plugin-persisted-scope = "2.3"
 tauri-plugin-single-instance = "2.3"
 # The path rule the file commands and the recorder share, and the write
 # beside a target the file commands make.
-whispering-files = { path = "../packages/whispering-files" }
+whispering-files = { path = "../../whispering/packages/whispering-files" }
 # A direct dependency gives this final app's build script the
 # DEP_TRANSCRIBE_CPP_* metadata `build.rs` reads.
 transcribe-cpp = { version = "0.1.0", default-features = false }

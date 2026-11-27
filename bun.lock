@@ -98,7 +98,20 @@
         "vite-plugin-devtools-json": "^1.0.0",
       },
     },
-    "apps/whispering-old/packages/recorder": {
+    "apps/whispering-old/packages/vite-config": {
+      "name": "@epicenter/vite-config",
+      "version": "0.1.1",
+      "dependencies": {
+        "@sveltejs/kit": "catalog:",
+        "@tailwindcss/vite": "catalog:",
+        "vite": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/whispering/packages/recorder": {
       "name": "@epicenter/recorder",
       "version": "0.0.1",
       "dependencies": {
@@ -111,7 +124,7 @@
         "typescript": "catalog:",
       },
     },
-    "apps/whispering-old/packages/transcription": {
+    "apps/whispering/packages/transcription": {
       "name": "@epicenter/transcription",
       "version": "0.0.1",
       "dependencies": {
@@ -123,19 +136,6 @@
         "@epicenter/ai": "workspace:*",
         "@types/bun": "catalog:",
         "svelte-check": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "apps/whispering-old/packages/vite-config": {
-      "name": "@epicenter/vite-config",
-      "version": "0.1.1",
-      "dependencies": {
-        "@sveltejs/kit": "catalog:",
-        "@tailwindcss/vite": "catalog:",
-        "vite": "catalog:",
-      },
-      "devDependencies": {
-        "@types/node": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -352,9 +352,9 @@
 
     "@epicenter/landing": ["@epicenter/landing@workspace:apps/landing"],
 
-    "@epicenter/recorder": ["@epicenter/recorder@workspace:apps/whispering-old/packages/recorder"],
+    "@epicenter/recorder": ["@epicenter/recorder@workspace:apps/whispering/packages/recorder"],
 
-    "@epicenter/transcription": ["@epicenter/transcription@workspace:apps/whispering-old/packages/transcription"],
+    "@epicenter/transcription": ["@epicenter/transcription@workspace:apps/whispering/packages/transcription"],
 
     "@epicenter/ui": ["@epicenter/ui@workspace:packages/ui"],
 

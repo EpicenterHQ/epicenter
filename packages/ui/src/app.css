@@ -14,7 +14,7 @@
 
 @source "./**/*.{svelte,ts}";
 /* And for the model administration pane in Whispering's @epicenter/transcription. */
-@source "../../../apps/whispering-old/packages/transcription/guest-js/**/*.{svelte,ts}";
+@source "../../../apps/whispering/packages/transcription/guest-js/**/*.{svelte,ts}";
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,
