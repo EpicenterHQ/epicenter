@@ -384,9 +384,11 @@ The small selection example does not show source acquisition or cleanup.
 This fuller factory illustrates those responsibilities. It assumes a
 synchronous, nonreactive `AppData` source whose changes must be followed for
 the factory's whole lifetime, including while no view is mounted. Imperative
-consumers need the latest successful snapshot too. `reportBackgroundError`
-is the app's error boundary; on a failed read this owner keeps its last good
-snapshot. It is not a wrapper to add around an already-reactive capability.
+consumers need the latest successful snapshot too. Nobody is waiting on a
+re-read, so on a failed one this owner
+[hands the error to the program](../../logging/SKILL.md) and keeps its last
+good snapshot. It is not a wrapper to add around an
+already-reactive capability.
 
 ```ts
 // bookmark-state.svelte.ts
@@ -395,7 +397,7 @@ function createBookmarkState(db: AppData) {
 
   function read() {
     const { data, error } = db.bookmarks.list();
-    if (error !== null) return reportBackgroundError(error);
+    if (error !== null) return reportError(error);
     rows = data.rows;
   }
 

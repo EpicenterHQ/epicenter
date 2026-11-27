@@ -51,7 +51,7 @@ Skip this for stable basics and repo-local patterns already documented in skills
 
 ## Library logging
 
-Do not use direct `console.*` in library code. Use `wellcrafted/logger`. Biome refuses `console` under `packages/*/src`; a deliberate call there carries a `biome-ignore` with its reason.
+Do not use direct `console.*` in library code. Return the failure, or hand it to the program when nobody asked; only a program's starting code creates a logger (the `logging` skill). Biome refuses `console` under `packages/*/src`; a deliberate call there carries a `biome-ignore` with its reason.
 
 ## Planning docs and decisions
 
