@@ -16,7 +16,7 @@
 		Take,
 	} from '#lib/dictation-view.ts';
 	import { setDictation } from '#lib/dictation-view.ts';
-	import NeedsCard from '../NeedsCard.svelte';
+	import NeedsLine from '../NeedsLine.svelte';
 	import Pill from '../Pill.svelte';
 	import RecorderPanel from '../RecorderPanel.svelte';
 
@@ -105,8 +105,8 @@
 	<div class="mx-auto grid w-full max-w-4xl gap-8 p-6 md:grid-cols-[1fr_auto]">
 		<section class="flex flex-col gap-4" aria-label="Home">
 			<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Home</h2>
-			<NeedsCard />
 			<RecorderPanel />
+			<NeedsLine />
 		</section>
 		<section class="flex flex-col gap-4" aria-label="Pill">
 			<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pill, over other apps</h2>

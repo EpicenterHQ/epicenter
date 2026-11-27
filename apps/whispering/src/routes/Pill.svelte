@@ -33,7 +33,7 @@
 		{#if dictation.silent()}
 			<span class="min-w-0 flex-1 truncate text-destructive">No sound</span>
 		{:else}
-			<LevelMeter level={dictation.level()} class="flex-1 bg-destructive/15 text-destructive" />
+			<LevelMeter level={dictation.level()} class="flex-1 text-destructive" />
 		{/if}
 		<IconButton label="Stop" size="sm" variant="ghost" class="-mr-2 rounded-full" onclick={() => dictation.toggle()}>
 			<SquareIcon class="fill-current" />
@@ -56,7 +56,7 @@
 	{:else if listening}
 		<span class="size-2.5 shrink-0 rounded-full border-2 border-muted-foreground" aria-hidden="true"></span>
 		<span class="shrink-0 text-muted-foreground">Listening</span>
-		<LevelMeter level={dictation.level()} class="flex-1" />
+		<LevelMeter level={dictation.level()} class="flex-1 text-muted-foreground" />
 	{:else}
 		<span class="text-muted-foreground">Ready</span>
 	{/if}

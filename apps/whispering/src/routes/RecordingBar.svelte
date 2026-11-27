@@ -23,7 +23,7 @@
 		{#if dictation.silent()}
 			<span class="min-w-0 flex-1 truncate text-destructive">No sound from the microphone. Is it muted?</span>
 		{:else}
-			<LevelMeter level={dictation.level()} class="flex-1 bg-destructive/15 text-destructive" />
+			<LevelMeter level={dictation.level()} class="flex-1 text-destructive" />
 		{/if}
 		<Button variant="destructive" size="sm" onclick={() => dictation.toggle()}>
 			<SquareIcon class="fill-current" />

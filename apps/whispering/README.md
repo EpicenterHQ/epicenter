@@ -170,11 +170,15 @@ again so the model cannot undo them.
   checked before they are built. Refused: screens importing
   `dictation.svelte.ts`, which ties every state they show to a microphone
   and to features that exist.
-- **One sidebar, one level deep.** Home and Recordings, then each settings
-  section by name, so no setting sits behind a second menu; a narrow window
-  folds it to icons. Refused: v7's sidebar with a second sidebar inside
-  Settings, and a header with only a settings button, which had nowhere to
-  show what needs fixing.
+- **The sidebar holds three places; Settings lists its own sections.** Home,
+  Recordings and Settings, with a mark on Settings while dictation needs
+  something set there; each section is its own page, so a fix links straight
+  to it. A narrow window folds the sidebar to icons and the sections to tabs.
+  Refused: every section in the sidebar, which made it read as a control
+  panel, and one long settings page, which no fix can link into.
+- **Home says what is wrong once, in words.** A missing setup is one line
+  under the recorder, and the sidebar only marks Settings. Refused: a card,
+  a status count and a summary line saying the same thing three times.
 - **Recordings is a list and a reading pane, and the address names the open
   one.** Search shows the words around each match; "Needs attention" gathers
   takes with no text. Refused: v7's table, whose columns (title, subtitle,
