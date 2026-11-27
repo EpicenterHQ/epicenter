@@ -2,7 +2,8 @@
  * What a recorder does, in the desktop app (`native.ts`, the native recorder
  * plugin) and in a browser (`browser.ts`, `MediaRecorder`). Both write a take
  * to `recordings/<id>.<ext>` and answer its id and length; both list the
- * microphones and open a meter on one for settings.
+ * microphones and open a meter on one for settings. Only the desktop app
+ * listens hands-free.
  *
  * A microphone is named by the id `inputs` lists it under; `null` is the
  * system default. A microphone that is not connected is refused, never
@@ -52,4 +53,31 @@ export type Recorder = {
 		device: string | null,
 		onLevel: (level: number) => void,
 	): Answer<() => void>;
+	/** Hands-free, or null where there is none: a browser tab. */
+	handsFree: HandsFreeRecorder | null;
+};
+
+/**
+ * Hands-free: the microphone stays open and each phrase spoken becomes a
+ * take of its own, starting half a second before the voice and ending on a
+ * pause. While it runs, `start` is refused `Busy`.
+ */
+export type HandsFreeRecorder = {
+	/**
+	 * Open `device` and listen. `id` names each take as its phrase starts,
+	 * so the id holds the time the phrase began. `onSpeech` hears that a
+	 * phrase started, with its id; `onPhrase` hears its finished take.
+	 * `onEnded` hears a microphone or a disk that stopped on its own; `stop`
+	 * then answers what was being written.
+	 */
+	start(options: {
+		device: string | null;
+		id: () => string;
+		onLevel: (level: number) => void;
+		onSpeech: (id: string) => void;
+		onPhrase: (recording: StoppedRecording) => void;
+		onEnded: (reason: EndedReason) => void;
+	}): Answer<null>;
+	/** Close the microphone; answers the take being written, finished, or null between phrases. */
+	stop(): Answer<StoppedRecording | null>;
 };

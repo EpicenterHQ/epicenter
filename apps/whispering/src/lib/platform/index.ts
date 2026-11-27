@@ -5,7 +5,7 @@
  * | | Desktop app | Browser |
  * | --- | --- | --- |
  * | `files` | the app's local data directory | the Origin Private File System |
- * | `recorder` | the native recorder, writing each second | `MediaRecorder`, writing on Stop |
+ * | `recorder` | the native recorder, writing each second; hands-free | `MediaRecorder`, writing on Stop; no hands-free |
  * | `servers` | Rust sends each request; keys are in the Keychain | `fetch` sends it; keys are in `localStorage` |
  * | `local` | models on this computer, run by transcribe.cpp (`local.rs`) | none |
  * | `copyText` | the clipboard plugin, which works while another app is in front | the page's clipboard |

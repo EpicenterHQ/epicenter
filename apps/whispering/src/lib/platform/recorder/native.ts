@@ -7,10 +7,12 @@
 import {
 	commands,
 	type EndedReason,
+	type ListenSignal,
 	type RecordingSignal,
 } from '@epicenter/recorder/native';
 import { Channel } from '@tauri-apps/api/core';
 import { appLocalDataDir } from '@tauri-apps/api/path';
+import { Ok } from 'wellcrafted/result';
 import type { Recorder } from './recorder';
 
 /** A channel that hands each level the recorder sends to `onLevel`, and anything else to `onOther`. */
@@ -69,5 +71,36 @@ export const nativeRecorder: Recorder = {
 			data: () => void commands.closeMeter(id).catch(() => {}),
 			error: null,
 		};
+	},
+
+	/**
+	 * Hands-free, in the recorder plugin (`listen.rs`). The plugin says a
+	 * phrase started; this names its take at once, and tells `onSpeech`
+	 * only when the name was taken. A name that is refused loses that one
+	 * phrase and nothing else: the plugin drops it and keeps listening.
+	 */
+	handsFree: {
+		async start({ device, id, onLevel, onSpeech, onPhrase, onEnded }) {
+			const folder = await appLocalDataDir();
+			const signals = new Channel<ListenSignal>();
+			signals.onmessage = (signal) => {
+				if (signal.kind === 'level') return onLevel(signal.level ?? 0);
+				if (signal.kind === 'phrase') return onPhrase(signal.recording);
+				if (signal.kind === 'ended') return onEnded(signal.reason);
+				const phrase = id();
+				void commands.namePhrase(folder, phrase).then((named) => {
+					if (!named.error) onSpeech(phrase);
+				});
+			};
+			return commands.listen(device, signals);
+		},
+
+		async stop() {
+			const stopped = await commands.unlisten();
+			// Not listening is already stopped: a microphone that ended on
+			// its own and a second Stop both arrive here.
+			if (stopped.error?.name === 'NotRecording') return Ok(null);
+			return stopped;
+		},
 	},
 };

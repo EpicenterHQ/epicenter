@@ -63,7 +63,7 @@ src/
       preview/               development only: the screens fed a made-up dictation
   lib/
     dictation-view.ts        what a screen may know about dictation (`DictationView`)
-    dictation.svelte.ts      live state, and record → save → transcribe → clean up → copy
+    dictation.svelte.ts      live state, hands-free, and record → save → transcribe → clean up → copy
     queries.ts               the cache: TanStack Query over data/, keys, models, and microphones
     model-downloads.svelte.ts  how far each model download is, for any screen
     data/
@@ -146,6 +146,21 @@ The layers answer different questions:
   dictionary's replacements still apply to its text. Refused: a server as
   the only way, which left a new install doing nothing until an address
   and a key were typed in.
+- **Hands-free listens in the recorder plugin, with the microphone left
+  open.** The plugin keeps the last half second it heard, so a take starts
+  before the first syllable, and ends it after 1.2 seconds without a
+  voice; the detector is `earshot`, about 95 KiB of Rust with no model
+  file. The page names each take as its phrase starts, so the id still
+  holds the time it began. A take with no words in it (a cough, a door) is
+  deleted without a message. Refused: watching the level in the page and
+  starting a recording when it rises, which opens the microphone after
+  the speech began; and Silero through ONNX Runtime, about 8 MB more for
+  the same job.
+- **Hands-free is on for one run of the app.** Nothing in `settings.json`
+  turns it on, so the app never opens a microphone at launch. While it
+  listens, the Record button and the shortcut turn it off. Refused: a
+  saved switch, which leaves a microphone open after a restart that the
+  person did not ask for.
 - **The browser recorder turns voice processing off and writes on Stop.**
   Echo cancellation and noise suppression change the audio the server hears.
   Refused: writing chunks while recording, which would leave a half-written

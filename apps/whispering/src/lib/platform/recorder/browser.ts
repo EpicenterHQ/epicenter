@@ -229,5 +229,7 @@ export function createBrowserRecorder(files: Files): Recorder {
 				release(opened.data);
 			});
 		},
+
+		handsFree: null,
 	};
 }

@@ -43,7 +43,7 @@ export type Take =
 
 /** Hands-free: the microphone stays open between takes and a take starts on speech. */
 export type HandsFree =
-	/** Not offered here, and why: in a browser tab, or not built yet. */
+	/** Not offered here, and why: a browser tab has no hands-free. */
 	| { kind: 'unavailable'; why: string }
 	| { kind: 'off' }
 	| { kind: 'listening' };

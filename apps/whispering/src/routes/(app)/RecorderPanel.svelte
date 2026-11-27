@@ -115,7 +115,7 @@
 	</div>
 
 	<div class="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t px-3 py-1.5">
-		<MicrophoneSelect compact disabled={take.kind !== 'idle'} />
+		<MicrophoneSelect compact disabled={take.kind !== 'idle' || handsFree.kind === 'listening'} />
 		<div class="flex items-center gap-4 px-2">
 			{#if outcome.kind === 'transcribing'}
 				<p class="flex items-center gap-2 text-sm text-muted-foreground" role="status">

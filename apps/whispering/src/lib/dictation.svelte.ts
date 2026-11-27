@@ -27,7 +27,11 @@ import { cleanupServer, DEFAULTS, transcriber } from './data/settings';
 import { CLEANUP_PROMPT, DICTIONARY } from './data/text-files';
 import type { Fix, HandsFree, Outcome, Take, Trigger } from './dictation-view';
 import { copyText, local, recorder, servers } from './platform';
-import { type EndedReason, HEARD } from './platform/recorder/recorder';
+import {
+	type EndedReason,
+	HEARD,
+	type StoppedRecording,
+} from './platform/recorder/recorder';
 import {
 	queryClient,
 	recordingsMutations,
@@ -38,8 +42,11 @@ import {
 /** How long a take may send only silence before the screens point it out. */
 const QUIET_MS = 3000;
 
-/** Hands-free is designed (see the preview page) but not built yet. */
-const HANDS_FREE: HandsFree = { kind: 'unavailable', why: 'Not built yet.' };
+/** What a browser tab says of hands-free, which the recorder plugin does. */
+const NO_HANDS_FREE: HandsFree = {
+	kind: 'unavailable',
+	why: 'Hands-free needs the desktop app.',
+};
 
 const SERVER_SETTINGS: Fix = {
 	label: 'Set up transcription',
@@ -87,6 +94,11 @@ function createDictation() {
 	let level = $state(0);
 	/** Whether this take has sent only silence for `QUIET_MS`. */
 	let silent = $state(false);
+	/**
+	 * Whether hands-free holds the microphone open. It is on for this run
+	 * of the app only: nothing in the settings opens a microphone at launch.
+	 */
+	let listening = $state(false);
 
 	async function start(trigger: Trigger) {
 		take = { kind: 'starting' };
@@ -130,17 +142,90 @@ function createDictation() {
 		const { data, error } = await recorder.stop();
 		take = { kind: 'idle' };
 		if (error) return toastOnError(error, 'Could not finish the recording');
-		const saved = await runMutation(queryClient, recordingsMutations.add, data);
+		await keep(data);
+	}
+
+	/**
+	 * Save the finished take `recording`, then transcribe and deliver it.
+	 * `heardByVoice` is a take hands-free started on its own.
+	 */
+	async function keep(
+		recording: StoppedRecording,
+		{ heardByVoice = false } = {},
+	) {
+		const saved = await runMutation(
+			queryClient,
+			recordingsMutations.add,
+			recording,
+		);
 		if (saved.error) {
 			outcome = {
 				kind: 'failed',
-				id: data.id,
+				id: recording.id,
 				label: 'Not saved',
 				why: saved.error.message,
 			};
 			return toastOnError(saved, 'Could not save the recording');
 		}
-		await transcribe(data.id);
+		await transcribe(recording.id, { heardByVoice });
+	}
+
+	/**
+	 * Turn hands-free on: the microphone stays open, and each phrase spoken
+	 * is a take that ends on a pause and is delivered like any other. The
+	 * next phrase can start while the last one is transcribed.
+	 */
+	async function listen() {
+		const handsFree = recorder.handsFree;
+		if (!handsFree || listening || take.kind !== 'idle') return;
+		listening = true;
+		level = 0;
+		silent = false;
+		const { microphone } = await currentSettings();
+		const { error } = await handsFree.start({
+			device: microphone ?? null,
+			id: timeId,
+			onLevel: (next) => {
+				level = next;
+			},
+			onSpeech: () => {
+				take = { kind: 'recording', startedAt: Date.now(), trigger: 'voice' };
+			},
+			onPhrase: (recording) => {
+				take = { kind: 'idle' };
+				void keep(recording, { heardByVoice: true });
+			},
+			onEnded: (reason) => {
+				toast.warning('Hands-free stopped', {
+					description: `${ENDED[reason]} What was recorded is kept.`,
+				});
+				void unlisten();
+			},
+		});
+		if (error) {
+			listening = false;
+			if (error.name === 'NoInputDevice' || error.name === 'InputUnavailable')
+				return toast.error('Could not start listening', {
+					description: error.message,
+					action: openSettings,
+				});
+			return toastOnError(error, 'Could not start listening');
+		}
+		// Turned off while the microphone was opening: close it again.
+		if (!listening) await handsFree.stop();
+	}
+
+	/** Turn hands-free off, keeping and delivering a phrase under way. */
+	async function unlisten() {
+		const handsFree = recorder.handsFree;
+		if (!handsFree || !listening) return;
+		listening = false;
+		if (take.kind === 'recording') take = { kind: 'stopping' };
+		const { data, error } = await handsFree.stop();
+		take = { kind: 'idle' };
+		level = 0;
+		if (error) return toastOnError(error, 'Could not finish the recording');
+		if (data) await keep(data, { heardByVoice: true });
 	}
 
 	/**
@@ -154,7 +239,7 @@ function createDictation() {
 	 * and the replacements apply again. When cleanup is skipped, fails, or
 	 * answers something it cannot trust, the person gets the text without it.
 	 */
-	async function transcribe(id: string) {
+	async function transcribe(id: string, { heardByVoice = false } = {}) {
 		const settings = await currentSettings();
 		const chosen = transcriber(settings);
 		if (!chosen) {
@@ -210,6 +295,20 @@ function createDictation() {
 					description: error.message,
 					action: needs ? openSettings : undefined,
 				});
+				return;
+			}
+			if (!heard && heardByVoice) {
+				// Hands-free took a cough or a door for a voice. Nobody asked
+				// for this take, so it leaves without a word.
+				transcribing.delete(id);
+				outcome = { kind: 'none' };
+				const removed = await runMutation(
+					queryClient,
+					recordingsMutations.delete,
+					{ id },
+				);
+				if (removed.error)
+					toastOnError(removed, 'Could not throw the recording away');
 				return;
 			}
 			if (!heard) {
@@ -302,7 +401,7 @@ function createDictation() {
 
 	/** Stop the take under way and delete what it recorded. */
 	async function cancel() {
-		if (take.kind !== 'recording') return;
+		if (take.kind !== 'recording' || listening) return;
 		take = { kind: 'stopping' };
 		const { data, error } = await recorder.stop();
 		take = { kind: 'idle' };
@@ -338,11 +437,18 @@ function createDictation() {
 		keys: () => ({ toggle: '⌘⇧;' }),
 		level: () => level,
 		silent: () => silent,
-		handsFree: () => HANDS_FREE,
+		handsFree: (): HandsFree =>
+			!recorder.handsFree
+				? NO_HANDS_FREE
+				: listening
+					? { kind: 'listening' }
+					: { kind: 'off' },
 		outcome: () => outcome,
 
 		/** Start a take, or stop the one under way; `trigger` says what asked. */
 		toggle(trigger: Trigger = 'button') {
+			// While hands-free listens, the button and the shortcut turn it off.
+			if (listening) return void unlisten();
 			if (take.kind === 'idle') return void start(trigger);
 			if (take.kind === 'recording') return void stop();
 		},
@@ -358,7 +464,9 @@ function createDictation() {
 			void goto(href);
 		},
 
-		setHandsFree(_on: boolean) {},
+		setHandsFree(on: boolean) {
+			void (on ? listen() : unlisten());
+		},
 
 		/** Whether the recording `id` is with the server now. */
 		isTranscribing(id: string) {
