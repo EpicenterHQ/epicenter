@@ -2,7 +2,8 @@
 	Home's recorder: the microphone to press, and one sentence under it that
 	says what to do now. Recording, the microphone stays and a soft red halo
 	marks it live; the clock and the level take the sentence's place. Under
-	it, what became of the latest take. It reads only `DictationView`, so
+	it, the microphone it records from, Hands-free, and what became of the
+	latest take. It reads dictation only through `DictationView`, so
 	the preview page can show each state.
 -->
 <script lang="ts">
@@ -18,6 +19,7 @@
 	import Elapsed from '../Elapsed.svelte';
 	import Key from './Key.svelte';
 	import LevelMeter from '../LevelMeter.svelte';
+	import MicrophoneSelect from './MicrophoneSelect.svelte';
 
 	const dictation = getDictation();
 	const take = $derived(dictation.take());
@@ -77,16 +79,19 @@
 		{/if}
 	</div>
 
-	{#if handsFree.kind !== 'unavailable'}
-		<div class="flex items-center gap-2">
-			<Checkbox
-				id="hands-free"
-				checked={handsFree.kind === 'listening'}
-				onCheckedChange={(on) => dictation.setHandsFree(on === true)}
-			/>
-			<Label for="hands-free">Hands-free</Label>
-		</div>
-	{/if}
+	<div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+		<MicrophoneSelect compact disabled={take.kind !== 'idle'} />
+		{#if handsFree.kind !== 'unavailable'}
+			<div class="flex items-center gap-2">
+				<Checkbox
+					id="hands-free"
+					checked={handsFree.kind === 'listening'}
+					onCheckedChange={(on) => dictation.setHandsFree(on === true)}
+				/>
+				<Label for="hands-free">Hands-free</Label>
+			</div>
+		{/if}
+	</div>
 
 	{#if outcome.kind === 'transcribing'}
 		<p class="flex items-center gap-2 text-sm text-muted-foreground" role="status">
