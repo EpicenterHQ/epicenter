@@ -1,8 +1,9 @@
 /**
  * What is happening right now: whether a recording is running, which
- * recordings are being transcribed or cleaned up, and which recording the
- * feed shows open. This is the one place the record, stop, save,
- * transcribe, clean up, copy sequence is written.
+ * recordings are being transcribed or cleaned up, and what became of the
+ * latest take. This is the one place the record, stop, save, transcribe,
+ * clean up, copy sequence is written. Screens read it through
+ * `DictationView` (`dictation-view.ts`), never this module's internals.
  */
 import { timeId } from '@epicenter/app/time';
 import { toastOnError } from '@epicenter/ui/toast-on-error';
@@ -24,6 +25,7 @@ import {
 } from './cleanup';
 import { cleanupServer } from './data/settings';
 import { CLEANUP_PROMPT, DICTIONARY } from './data/text-files';
+import type { Fix, HandsFree, Outcome, Take, Trigger } from './dictation-view';
 import { copyText, recorder, servers } from './platform';
 import { type EndedReason, HEARD } from './platform/recorder/recorder';
 import {
@@ -33,11 +35,16 @@ import {
 	textFilesQueries,
 } from './queries';
 
-type Status =
-	| { kind: 'idle' }
-	| { kind: 'starting' }
-	| { kind: 'recording'; startedAt: number }
-	| { kind: 'stopping' };
+/** How long a take may send only silence before the screens point it out. */
+const QUIET_MS = 3000;
+
+/** Hands-free is designed (see the preview page) but not built yet. */
+const HANDS_FREE: HandsFree = { kind: 'unavailable', why: 'Not built yet.' };
+
+const SERVER_SETTINGS: Fix = {
+	label: 'Set up transcription',
+	href: '/settings/transcription',
+};
 
 const ENDED: Record<EndedReason, string> = {
 	deviceDisconnected: 'The microphone was disconnected.',
@@ -61,20 +68,15 @@ async function currentSettings() {
 
 const openSettings = {
 	label: 'Open settings',
-	onClick: () => goto('/settings'),
+	onClick: () => goto(SERVER_SETTINGS.href),
 };
 
 function createDictation() {
-	let status = $state<Status>({ kind: 'idle' });
-	/**
-	 * The recording the feed shows open: the one the person opened last, or
-	 * the one that just finished, whichever came later. Undefined until
-	 * either happens, when the feed opens the newest.
-	 */
-	let openId = $state<string>();
+	let take = $state<Take>({ kind: 'idle' });
+	let outcome = $state<Outcome>({ kind: 'none' });
 	/**
 	 * The recordings whose audio is with the server now. It is apart from
-	 * `status`, so the next take can start while the last one transcribes.
+	 * `take`, so the next take can start while the last one transcribes.
 	 * Deleting a recording takes it out, and a transcript that arrives for
 	 * an id no longer here is dropped.
 	 */
@@ -83,13 +85,15 @@ function createDictation() {
 	const cleaning = new SvelteSet<string>();
 	/** The microphone's latest level while recording, from 0 to 1. */
 	let level = $state(0);
-	/** When the microphone last sent anything above silence during this recording. */
-	let heardAt = $state<number>();
+	/** Whether this take has sent only silence for `QUIET_MS`. */
+	let silent = $state(false);
 
-	async function start() {
-		status = { kind: 'starting' };
+	async function start(trigger: Trigger) {
+		take = { kind: 'starting' };
 		level = 0;
-		heardAt = undefined;
+		silent = false;
+		const startedAt = Date.now();
+		let heardAt = startedAt;
 		const { microphone } = await currentSettings();
 		const { error } = await recorder.start(timeId(), {
 			device: microphone ?? null,
@@ -101,11 +105,13 @@ function createDictation() {
 			},
 			onLevel: (next) => {
 				level = next;
-				if (next > HEARD) heardAt = Date.now();
+				const now = Date.now();
+				if (next > HEARD) heardAt = now;
+				silent = now - heardAt > QUIET_MS;
 			},
 		});
 		if (error) {
-			status = { kind: 'idle' };
+			take = { kind: 'idle' };
 			// A chosen microphone that is unplugged is refused, never swapped
 			// for another, so point to where another can be chosen.
 			if (error.name === 'NoInputDevice' || error.name === 'InputUnavailable')
@@ -115,18 +121,20 @@ function createDictation() {
 				});
 			return toastOnError(error, 'Could not start recording');
 		}
-		status = { kind: 'recording', startedAt: Date.now() };
+		take = { kind: 'recording', startedAt, trigger };
 	}
 
 	async function stop() {
-		if (status.kind !== 'recording') return;
-		status = { kind: 'stopping' };
+		if (take.kind !== 'recording') return;
+		take = { kind: 'stopping' };
 		const { data, error } = await recorder.stop();
-		status = { kind: 'idle' };
+		take = { kind: 'idle' };
 		if (error) return toastOnError(error, 'Could not finish the recording');
-		openId = data.id;
 		const saved = await runMutation(queryClient, recordingsMutations.add, data);
-		if (saved.error) return toastOnError(saved, 'Could not save the recording');
+		if (saved.error) {
+			outcome = { kind: 'failed', id: data.id, why: saved.error.message };
+			return toastOnError(saved, 'Could not save the recording');
+		}
 		await transcribe(data.id);
 	}
 
@@ -145,6 +153,12 @@ function createDictation() {
 		const settings = await currentSettings();
 		const { server } = settings;
 		if (!server) {
+			outcome = {
+				kind: 'failed',
+				id,
+				why: 'No transcription server is set.',
+				fix: SERVER_SETTINGS,
+			};
 			toast.info('Recording kept', {
 				description:
 					'Add a transcription server to get text after each recording.',
@@ -154,6 +168,7 @@ function createDictation() {
 		}
 		if (transcribing.has(id)) return;
 		transcribing.add(id);
+		outcome = { kind: 'transcribing', id };
 		// Deleting the recording takes its id out of `transcribing`; nothing
 		// is written for it after that.
 		const gone = () => !transcribing.has(id);
@@ -169,6 +184,12 @@ function createDictation() {
 			);
 			if (gone()) return;
 			if (error) {
+				outcome = {
+					kind: 'failed',
+					id,
+					why: error.message,
+					fix: error.name === 'Unauthorized' ? SERVER_SETTINGS : undefined,
+				};
 				toast.error('Could not transcribe', {
 					description: error.message,
 					action: error.name === 'Unauthorized' ? openSettings : undefined,
@@ -176,13 +197,16 @@ function createDictation() {
 				return;
 			}
 			if (!heard) {
+				outcome = { kind: 'failed', id, why: 'No speech was heard.' };
 				toast.info('No speech was heard');
 				return;
 			}
 			const replaced = replaceWords(heard, words.replacements);
 			const saved = await save({ id, transcript: replaced, original: heard });
-			if (saved.error)
+			if (saved.error) {
+				outcome = { kind: 'failed', id, why: saved.error.message };
 				return toastOnError(saved, 'Could not save the transcript');
+			}
 
 			let delivered = replaced;
 			/** Why the text went out without cleanup, when cleanup was asked to run. */
@@ -223,8 +247,11 @@ function createDictation() {
 				try: () => copyText(delivered),
 				catch: (cause) => DictationError.CopyFailed({ cause }),
 			});
-			if (copied.error)
+			if (copied.error) {
+				outcome = { kind: 'failed', id, why: copied.error.message };
 				return toastOnError(copied, 'Could not copy the transcript');
+			}
+			outcome = { kind: 'delivered', id, to: 'clipboard' };
 			if (notCleaned)
 				return toast.success('Copied without cleanup', {
 					description: notCleaned,
@@ -261,31 +288,21 @@ function createDictation() {
 	}
 
 	return {
-		get status() {
-			return status;
-		},
-		get openId() {
-			return openId;
-		},
-		/** The microphone's latest level while recording, from 0 to 1. */
-		get level() {
-			return level;
-		},
-		/** When the microphone last sent sound during this recording; undefined until it does. */
-		get heardAt() {
-			return heardAt;
+		take: () => take,
+		/** The start-and-stop shortcut is fixed in `main.rs`; hold to talk is not built yet. */
+		keys: () => ({ toggle: '⌘⇧;' }),
+		level: () => level,
+		silent: () => silent,
+		handsFree: () => HANDS_FREE,
+		outcome: () => outcome,
+
+		/** Start a take, or stop the one under way; `trigger` says what asked. */
+		toggle(trigger: Trigger = 'button') {
+			if (take.kind === 'idle') return void start(trigger);
+			if (take.kind === 'recording') return void stop();
 		},
 
-		/** Start recording, or stop the recording that is running. */
-		toggle() {
-			if (status.kind === 'idle') return start();
-			if (status.kind === 'recording') return stop();
-		},
-
-		/** Show the recording `id` open in the feed. */
-		open(id: string) {
-			openId = id;
-		},
+		setHandsFree(_on: boolean) {},
 
 		/** Whether the recording `id` is with the server now. */
 		isTranscribing(id: string) {
@@ -298,7 +315,7 @@ function createDictation() {
 		},
 
 		/** Transcribe the recording `id`, then clean up, save and copy its text. */
-		transcribe,
+		transcribe: (id: string) => void transcribe(id),
 
 		/**
 		 * Drop the transcription of `id` under way, if any, so its text is
@@ -306,6 +323,8 @@ function createDictation() {
 		 */
 		forget(id: string) {
 			transcribing.delete(id);
+			if (outcome.kind !== 'none' && outcome.id === id)
+				outcome = { kind: 'none' };
 		},
 	};
 }

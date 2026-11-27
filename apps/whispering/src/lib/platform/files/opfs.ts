@@ -91,6 +91,7 @@ export function opfsFiles(): Files {
 	void navigator.storage.persist();
 
 	return {
+		keptIn: 'this browser',
 		list: (dir) =>
 			io(
 				'list',

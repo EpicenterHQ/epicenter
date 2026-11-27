@@ -53,6 +53,7 @@ async function io<T>(
 
 export function tauriFiles(): Files {
 	return {
+		keptIn: "this app's data folder",
 		list: (dir) =>
 			io(
 				'list',

@@ -45,7 +45,13 @@ Each layer imports only from the layers below it.
 ```txt
 src/
   routes/                    screens: read through queries, write through mutations
+    +layout.svelte           the sidebar frame; hands the screens the real dictation
+    +page.svelte             Home: what dictation needs, the recorder, the last takes
+    recordings/              the list and the reading pane, chosen by `?id=`
+    settings/<section>/      one page per sidebar entry
+    preview/                 development only: the screens fed a made-up dictation
   lib/
+    dictation-view.ts        what a screen may know about dictation (`DictationView`)
     dictation.svelte.ts      live state, and record → save → transcribe → clean up → copy
     queries.ts               the cache: TanStack Query over data/, keys, and microphones
     data/
@@ -74,6 +80,7 @@ The layers answer different questions:
 | `platform/` | How do I read a file, record, or ask a server here? |
 | `data/` | What is a recording, and which files make one? |
 | `queries.ts` | What does the screen show now, and when does it refresh? |
+| `dictation-view.ts` | What may a screen know about a take? |
 | `dictation.svelte.ts` | What is happening right now, and what happens next? |
 
 ## Decisions
@@ -152,6 +159,27 @@ again so the model cannot undo them.
   `data/text-files.ts` reads, writes, and removes a file by path, and
   `TextFileEditor.svelte` edits either; a missing file falls back to an empty
   dictionary or the built-in prompt. Refused: a module and form per file.
+
+### Screens
+
+- **Screens read dictation through `DictationView` from context, never the
+  module.** The take, the level, Hands-free, what became of the last take,
+  and what dictation still needs are read methods; Record, Stop and
+  Transcribe are its only actions. The preview page hands the same screens a
+  made-up view, so the pill, hold to talk and Hands-free can be designed and
+  checked before they are built. Refused: screens importing
+  `dictation.svelte.ts`, which ties every state they show to a microphone
+  and to features that exist.
+- **One sidebar, one level deep.** Home and Recordings, then each settings
+  section by name, so no setting sits behind a second menu; a narrow window
+  folds it to icons. Refused: v7's sidebar with a second sidebar inside
+  Settings, and a header with only a settings button, which had nowhere to
+  show what needs fixing.
+- **Recordings is a list and a reading pane, and the address names the open
+  one.** Search shows the words around each match; "Needs attention" gathers
+  takes with no text. Refused: v7's table, whose columns (title, subtitle,
+  transformation output) no longer exist, and a feed of inline editors,
+  which leaves no room to read or to move with the keys.
 
 ### Cache
 

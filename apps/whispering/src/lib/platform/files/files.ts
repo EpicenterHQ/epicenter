@@ -19,6 +19,8 @@ export type FilesError = {
 };
 
 export type Files = {
+	/** Where the files are, as a person reads it: "this app's data folder". */
+	keptIn: string;
 	/**
 	 * The names of the files directly in `dir` (`''` is the folder itself),
 	 * sorted: plain names only, so no directory, hidden file, or temporary

@@ -9,7 +9,6 @@
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { runMutation } from 'wellcrafted/query';
-	import { dictation } from '#lib/dictation.svelte.ts';
 	import { queryClient, recordingsMutations } from '#lib/queries.ts';
 
 	const SAMPLES = [
@@ -26,12 +25,11 @@
 			durationMs: 1000 + Math.round(Math.random() * 30_000),
 			transcript: SAMPLES[Math.floor(Math.random() * SAMPLES.length)],
 		});
-		if (added.error) return toastOnError(added, 'Could not add the sample');
-		dictation.open(id);
+		toastOnError(added, 'Could not add the sample');
 	}
 </script>
 
-<Button variant="outline" onclick={add}>
+<Button variant="ghost" size="sm" onclick={add}>
 	<PlusIcon />
 	Add sample
 </Button>

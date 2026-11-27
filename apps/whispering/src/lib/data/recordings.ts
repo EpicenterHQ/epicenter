@@ -77,6 +77,9 @@ function parseName(name: string) {
 }
 
 export const recordings = {
+	/** The path of the note that holds the recording `id`'s transcript. */
+	notePath,
+
 	/** Every recording, oldest first (ids sort by time). One read for every note. */
 	async list() {
 		const listed = await files.list(DIR);

@@ -9,7 +9,7 @@
 	import * as Field from '@epicenter/ui/field';
 	import * as Select from '@epicenter/ui/select';
 	import { toastOnError } from '@epicenter/ui/toast-on-error';
-	import { dictation } from '#lib/dictation.svelte.ts';
+	import { getDictation } from '#lib/dictation-view.ts';
 	import { recorder } from '#lib/platform/index.ts';
 	import { HEARD, type Input } from '#lib/platform/recorder/recorder.ts';
 	import { createQuery } from '@tanstack/svelte-query';
@@ -30,6 +30,7 @@
 	const inputs = $derived<Input[]>(connected.data ?? []);
 	const listError = $derived(connected.error?.message);
 
+	const dictation = getDictation();
 	const settings = createQuery(() => settingsQueries.read());
 	const microphone = $derived(settings.data?.microphone);
 	const chosen = $derived(microphone ?? DEFAULT);
@@ -46,7 +47,7 @@
 
 	// Listen to the chosen microphone while the page is open and nothing records.
 	$effect(() => {
-		if (dictation.status.kind !== 'idle') return;
+		if (dictation.take().kind !== 'idle') return;
 		const device = microphone ?? null;
 		level = 0;
 		heard = false;
@@ -101,7 +102,7 @@
 		</Select.Root>
 		{#if listError}
 			<Field.Error>{listError}</Field.Error>
-		{:else if dictation.status.kind !== 'idle'}
+		{:else if dictation.take().kind !== 'idle'}
 			<Field.Description>Recording now; the level shows in the bar above.</Field.Description>
 		{:else if meterError}
 			<Field.Error>{meterError}</Field.Error>
