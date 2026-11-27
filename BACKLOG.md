@@ -42,6 +42,13 @@ current code and dirty work: several chats share this checkout.
     picker, `settings.md`, transformations that "wait for a later release",
     and hosted models that "come back". The rewrite's README replaces it,
     and `docs/vision.md` links its `#the-folder` heading.
+- One place for failures: where every user action finishes, the app shows
+  the message and records a line in a log file in its own folder (time,
+  what was being done, the error's name and message; never transcript text
+  or a key), capped in size. A window-level handler records failures that
+  shared code hands up with `reportError`. Settings has a button to copy the
+  file. Features and screens return errors and call neither `toast` nor a
+  logger.
 - Then: a command-line transcribe mode, so an app in an Epicenter can use
   Whispering as its transcription engine, as `apps/codex` uses Handy today.
   The shape, settled on 2026-11-27:
@@ -123,10 +130,22 @@ current code and dirty work: several chats share this checkout.
 
 ### Finish the logging cleanup
 
-- Desired result: No package builds an error only to log it, as the
-  [logging skill](.agents/skills/logging/SKILL.md) requires.
-- Grounding: Two sites remain, the same catch-and-log loop in
-  `packages/ai/src/open-ai.ts` and `packages/ai/src/local-servers.ts`.
+- Desired result: A program has one place that writes its record and nothing
+  else logs, as the [logging skill](.agents/skills/logging/SKILL.md) says.
+- Grounding, on 2026-11-27:
+  - `packages/ai/src/open-ai.ts` and `packages/ai/src/local-servers.ts` each
+    create a logger and log a hand-written `new Error` when a subscriber
+    throws. Shared code hands that failure to the program with `reportError`
+    and creates no logger.
+  - In `packages/app`, the run line carries `outcome` and `error` where one
+    `error` field (the name, or `null`) says the same. The scheduler discards
+    each answer (`void answerCall(...)` in `command/schedules.ts`), so a
+    scheduled run that fails leaves only its error's name, and one that
+    cannot start leaves no line. The scheduler should log the answer it
+    drops, with the error as `cause`.
+  - `stderrJsonLines` trims a thrown `Error` to its name and message but
+    writes a tagged error's fields whole. It should trim every `cause`.
+  - Whispering has no such place yet: see the rewrite entry.
 
 ### Triage the open pull requests against the current code
 
