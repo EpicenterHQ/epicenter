@@ -86,27 +86,6 @@ Whispering did exactly this and grew a parallel `log` whose `warn(error: Error, 
 
 Mint a `defineErrors` variant instead, owned by the module that owns the failure.
 
-**The tell to watch for**: a boundary that types a failure callback as `(cause: unknown)` and ships no vocabulary with it. Every implementer must then invent a message, and `new Error` is the shortest way. If you declare such a callback, export its variants from the same file. For example:
-
-```ts
-export const BackgroundError = defineErrors({
-  AppFailed: ({ cause }: { cause: unknown }) => ({
-    message: 'App background work failed',
-    cause,
-  }),
-});
-
-export type AppDependencies = {
-  reportBackgroundError(cause: unknown): void;
-};
-```
-
-Implementers then name a failure rather than describing one:
-
-```ts
-reportBackgroundError: (cause) => log.warn(BackgroundError.AppFailed({ cause }))
-```
-
 ## Log-only variants are not public API
 
 Minting a variant is not the same as publishing one. Two kinds:
