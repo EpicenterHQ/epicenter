@@ -13,7 +13,7 @@ use tauri::{plugin::TauriPlugin, AppHandle, Manager, Runtime};
 
 pub mod audio;
 mod process;
-pub use process::run;
+pub use process::{exit, run};
 #[cfg(test)]
 mod command_names;
 #[cfg(test)]

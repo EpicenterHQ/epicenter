@@ -17,6 +17,13 @@ bun dev:whispering:desktop   # the desktop app
 
 Run both from the repository root.
 
+The desktop app's program also transcribes a file from a terminal, with no
+window, using a model already downloaded:
+
+```bash
+whispering --transcribe-file talk.wav --model parakeet --json
+```
+
 ## What it stores
 
 The desktop app keeps its files in the app's local data directory. A browser
@@ -85,6 +92,7 @@ src/
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
 src-tauri/src/
+  cli.rs                     `--transcribe-file`: a transcript from a terminal, with no window
   files.rs                   reads many files in one call, sizes a directory, opens the folder
   keys.rs                    the Keychain
   servers.rs                 transcription and cleanup requests, with the key
@@ -180,6 +188,12 @@ The layers answer different questions:
   key or a modifier alone, which the system's shortcut API cannot hold;
   they need a raw keyboard listener and macOS's Accessibility grant, which
   Whispering had and deleted (`docs/history.md`, 2026-06-18).
+- **`--transcribe-file` runs the app's own model code and reads nothing
+  of the app's.** It names a downloaded model and a file, prints the
+  model's words, and exits before any window or plugin starts. Refused,
+  until someone needs them: reading `settings.json` for a default model,
+  applying `dictionary.txt`, whose rules are TypeScript, and sending the
+  file to a server, which needs the Keychain.
 - **The browser recorder turns voice processing off and writes on Stop.**
   Echo cancellation and noise suppression change the audio the server hears.
   Refused: writing chunks while recording, which would leave a half-written

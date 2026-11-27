@@ -9,11 +9,13 @@
 //! server's API key read from the Keychain (`keys.rs`), and the global shortcuts the page
 //! names reach it from any app (`shortcuts.rs`). A second, small window floats the
 //! pill over every app while a take is under way (`pill.rs`). A recording
-//! can also be transcribed on this computer (`local.rs`).
+//! can also be transcribed on this computer (`local.rs`), and so can any
+//! audio file from a terminal, with no window (`cli.rs`).
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cli;
 mod files;
 mod keys;
 mod local;
@@ -28,6 +30,15 @@ use tauri_plugin_fs::FsExt;
 pub(crate) const WINDOW: &str = "main";
 
 fn main() {
+    // `--transcribe-file` transcribes and exits; no window opens (`cli.rs`).
+    match cli::parse(std::env::args().skip(1)) {
+        Ok(None) => {}
+        Ok(Some(request)) => tauri_plugin_epicenter_transcription::exit(cli::run(request)),
+        Err(message) => {
+            eprintln!("{message}");
+            tauri_plugin_epicenter_transcription::exit(2)
+        }
+    }
     let builder = tauri::Builder::default();
     // The pill's window is a panel that never activates the app.
     #[cfg(target_os = "macos")]
