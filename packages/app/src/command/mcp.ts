@@ -79,8 +79,7 @@ export function createMcp(program: Program, listing: Listing) {
 					app,
 					action.join('_'),
 					params.arguments ?? {},
-					undefined,
-					extra.signal,
+					{ signal: extra.signal },
 				).catch((cause: unknown) =>
 					ActionError.Threw({ message: extractErrorMessage(cause) }),
 				);

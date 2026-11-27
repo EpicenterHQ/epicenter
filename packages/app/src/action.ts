@@ -58,7 +58,7 @@ export type Input = Record<string, TSchema>;
  */
 export type Update<U> = (value: U) => void;
 
-/** How a caller calls an action directly: its updates, and a signal that aborts when it leaves. */
+/** How a caller listens for updates and signals that it has left. */
 export type CallOptions<U> = {
 	onUpdate?: (value: U) => unknown;
 	signal?: AbortSignal;

@@ -25,7 +25,7 @@
  */
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, type Ok, type Result, trySync } from 'wellcrafted/result';
-import type { ActionUpdate } from './action.ts';
+import type { ActionUpdate, CallOptions } from './action.ts';
 import {
 	ActionError,
 	type NotStarted,
@@ -68,16 +68,6 @@ type Answered<A> = Promise<
 	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
 >;
 
-/**
- * How a page listens to an action's updates, and abandons the call with
- * `signal`: the action's own `signal` aborts, and the call answers
- * Unreachable.
- */
-type CallOptions<A> = {
-	onUpdate?: (value: ActionUpdate<A>) => unknown;
-	signal?: AbortSignal;
-};
-
 /** An action's input argument, which may be left out when every key is optional. */
 type InputArg<A> =
 	Record<string, never> extends ActionInput<A>
@@ -87,13 +77,14 @@ type InputArg<A> =
 /** `{ onUpdate, signal }`, for an action that sends updates. */
 type OptionsArg<A> = [ActionUpdate<A>] extends [never]
 	? []
-	: [options?: CallOptions<A>];
+	: [options?: CallOptions<ActionUpdate<A>>];
 
 /**
  * One action as a page calls it: a function of its input, and of
- * `{ onUpdate, signal }` when the action sends updates. One that sends none takes
- * one argument, so a helper that takes a function of one argument, such as
- * Wellcrafted's `resultMutations`, accepts it.
+ * `{ onUpdate, signal }` when the action sends updates. Abandoning the call
+ * aborts the action's signal and answers Unreachable. An action without
+ * updates takes one argument, so helpers like Wellcrafted's
+ * `resultMutations` accept it.
  */
 export type ActionCall<A> = (
 	...args: [...InputArg<A>, ...OptionsArg<A>]
@@ -150,27 +141,20 @@ export function connect<H extends Epicenter>({
 	const base = url.replace(/\/$/, '');
 	return lazyKeys((app) =>
 		lazyKeys(
-			(action) =>
-				async (
-					input?: unknown,
-					options?: {
-						onUpdate?: (value: unknown) => unknown;
-						signal?: AbortSignal;
-					},
-				) => {
-					const { data: body, error } = trySync({
-						try: () => JSON.stringify(input ?? {}),
-						catch: (cause) =>
-							ActionError.NotStarted({
-								message: `The input is not JSON: ${extractErrorMessage(cause)}`,
-							}),
-					});
-					if (error !== null) return Err(error);
-					return postAction(`${base}${actionPath(app, action)}`, body, {
-						onUpdate: options?.onUpdate,
-						signal: options?.signal,
-					});
-				},
+			(action) => async (input?: unknown, options?: CallOptions<unknown>) => {
+				const { data: body, error } = trySync({
+					try: () => JSON.stringify(input ?? {}),
+					catch: (cause) =>
+						ActionError.NotStarted({
+							message: `The input is not JSON: ${extractErrorMessage(cause)}`,
+						}),
+				});
+				if (error !== null) return Err(error);
+				return postAction(`${base}${actionPath(app, action)}`, body, {
+					onUpdate: options?.onUpdate,
+					signal: options?.signal,
+				});
+			},
 		),
 	) as unknown as Client<H>;
 }

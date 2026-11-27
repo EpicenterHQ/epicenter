@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Err, Ok } from 'wellcrafted/result';
+import { expectErr } from 'wellcrafted/testing';
 import { defineData } from './data.ts';
 import { field } from './field.ts';
 
@@ -95,18 +96,24 @@ test('a read reports each line that does not fit, and the record for repair', as
 	await mkdir(join(home, 'data/watches'), { recursive: true });
 	await writeFile(join(home, 'data/watches/bad.md'), '---\nnights: 0\n---\n');
 	const { watches } = defineData(home, data);
-	const read = await watches.get('bad');
-	expect(read.error?.name).toBe('Misfit');
-	expect(read.error?.message).toBe(
+	const misfit = expectErr(await watches.get('bad'));
+	expect(misfit.name).toBe('Misfit');
+	expect(misfit.message).toBe(
 		[
 			'data/watches/bad.md does not fit its fields:',
 			'data/watches/bad.md: to is missing',
 			'data/watches/bad.md: nights must be >= 1, not 0',
 		].join('\n'),
 	);
-	expect((await watches.list()).map((each) => each.error)).toEqual([
-		read.error,
-	]);
+	expect((await watches.list()).map((each) => each.error)).toEqual([misfit]);
+	expect(expectErr(await watches.patch('bad', {}))).toEqual(misfit);
+	expect(
+		expectErr(
+			await watches.edit('bad', () => {
+				throw new Error('A computed edit must not see an invalid record');
+			}),
+		),
+	).toEqual(misfit);
 	// A patch that fixes one problem but leaves another writes nothing, and
 	// names what is still wrong.
 	const partial = await watches.patch('bad', { nights: 2 });
@@ -158,6 +165,11 @@ test('edit computes a change from the record, or creates one, and its own Err wr
 		Ok({ nights: (record?.nights ?? 0) + 1 }),
 	);
 	expect(again.data?.nights).toBe(2);
+	const unchanged = await watches.edit('tokyo', (record) => {
+		if (record) record.nights = 99;
+		return Ok({});
+	});
+	expect(unchanged).toEqual(again);
 	const refused = await watches.edit('tokyo', () =>
 		Err({ name: 'NotToday' as const, message: 'not today' }),
 	);
