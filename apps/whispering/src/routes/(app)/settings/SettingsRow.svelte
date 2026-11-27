@@ -38,5 +38,5 @@
 		{/if}
 		{#if error}<p class="text-sm text-destructive" role="alert">{error}</p>{/if}
 	</div>
-	{#if children}<div class="flex shrink-0 items-center gap-2">{@render children()}</div>{/if}
+	{#if children}<div class="flex max-w-full min-w-0 flex-wrap items-center gap-2">{@render children()}</div>{/if}
 </div>

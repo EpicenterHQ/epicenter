@@ -107,7 +107,7 @@
 			class="flex flex-col gap-2 rounded-xl bg-card py-3 text-card-foreground shadow-xs ring-1 ring-foreground/10"
 			aria-labelledby="latest"
 		>
-			<div class="flex items-center gap-2 px-4">
+			<div class="flex flex-wrap items-center gap-x-2 px-4">
 				<h2 id="latest" class="flex-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					Latest
 				</h2>

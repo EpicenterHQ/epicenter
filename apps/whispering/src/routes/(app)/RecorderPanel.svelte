@@ -4,8 +4,9 @@
 	(`VoiceWave`). Under it, one sentence says what to do now; recording,
 	the light turns red and brightens with the voice, the clock takes the
 	sentence's place, and a Stop button appears. A strip under that holds
-	the microphone it records from and Hands-free; a second strip, when
-	there is something to say, tells what became of the latest take. It
+	the microphone it records from on the left and, on the right, what
+	became of the latest take and Hands-free; a take that went wrong gets a
+	line of its own. It
 	reads dictation only through `DictationView`, so the preview page can
 	show each state.
 -->
@@ -115,31 +116,35 @@
 
 	<div class="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t px-3 py-1.5">
 		<MicrophoneSelect compact disabled={take.kind !== 'idle'} />
-		{#if handsFree.kind !== 'unavailable'}
-			<div class="flex items-center gap-2 px-2">
-				<Label for="hands-free" class="font-normal text-muted-foreground">Hands-free</Label>
-				<Switch
-					id="hands-free"
-					size="sm"
-					checked={handsFree.kind === 'listening'}
-					onCheckedChange={(on) => dictation.setHandsFree(on)}
-				/>
-			</div>
-		{/if}
-	</div>
-
-	{#if outcome.kind !== 'none'}
-		<div class="relative border-t px-5 py-2.5 text-sm">
+		<div class="flex items-center gap-4 px-2">
 			{#if outcome.kind === 'transcribing'}
-				<p class="flex items-center gap-2 text-muted-foreground" role="status">
+				<p class="flex items-center gap-2 text-sm text-muted-foreground" role="status">
 					<Spinner /> Transcribing the last take
 				</p>
 			{:else if outcome.kind === 'delivered'}
-				<p class="flex items-center gap-2 text-muted-foreground" role="status">
+				<p class="flex items-center gap-2 text-sm text-muted-foreground" role="status">
 					<CircleCheckIcon class="size-4 text-green-600 dark:text-green-400" />
 					{outcome.to === 'cursor' ? 'Pasted where you were typing' : 'Copied to the clipboard'}
 				</p>
-			{:else if outcome.kind === 'copiedInstead'}
+			{/if}
+			{#if handsFree.kind !== 'unavailable'}
+				<div class="flex items-center gap-2">
+					<Label for="hands-free" class="font-normal text-muted-foreground">Hands-free</Label>
+					<Switch
+						id="hands-free"
+						size="sm"
+						checked={handsFree.kind === 'listening'}
+						onCheckedChange={(on) => dictation.setHandsFree(on)}
+					/>
+				</div>
+			{/if}
+		</div>
+	</div>
+
+	<!-- A take that went wrong gets its own line: it has a reason to read, and often a link. -->
+	{#if outcome.kind === 'copiedInstead' || outcome.kind === 'failed'}
+		<div class="relative border-t px-5 py-2.5 text-sm">
+			{#if outcome.kind === 'copiedInstead'}
 				<p class="flex items-center gap-2" role="status">
 					<CircleAlertIcon class="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
 					Copied instead: {outcome.why}
