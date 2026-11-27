@@ -1,30 +1,9 @@
-import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
-import { createLogger } from 'wellcrafted/logger';
+import { extractErrorMessage } from 'wellcrafted/error';
 import type { ScheduleListing } from '../call.ts';
 import { isPlainObject, parseJson } from '../json.ts';
 import { isName, NAME_RULE } from '../name.ts';
-import { stderrJsonLines } from './output.ts';
 import type { Program } from './program.ts';
-import { answerCall, inputProblem } from './run.ts';
-
-/** A scheduled run has no caller, so the answer it would have had is logged. */
-const ScheduleError = defineErrors({
-	RunFailed: ({
-		app,
-		action,
-		cause,
-	}: {
-		app: string;
-		action: string;
-		cause: { name: string; message: string };
-	}) => ({
-		message: `Scheduled ${app} ${action} failed with ${cause.name}: ${cause.message}`,
-		app,
-		action,
-	}),
-});
-
-const scheduleLog = createLogger('epicenter/schedules', stderrJsonLines);
+import { callAction, inputProblem } from './run.ts';
 
 const MINUTE = 60_000;
 export type Schedule = {
@@ -101,22 +80,20 @@ export function startSchedules(program: Program) {
 		timer = setTimeout(tick, MINUTE - (now % MINUTE));
 		for (const entry of entries) {
 			const current = Date.now();
-			const { cron, action, inputJson, next: due } = entry;
+			const {
+				cron,
+				action: [app, action],
+				inputJson,
+				next: due,
+			} = entry;
 			if (due === null || due > current) continue;
 			entry.next = nextRun(cron, current);
 			const currentMinute = current - (current % MINUTE);
 			const occurrence =
 				due >= currentMinute ? due : nextRun(cron, currentMinute - 1);
-			if (occurrence === null || occurrence > current) continue;
-			const [app, name] = action;
-			void answerCall(program, app, name, parseJson(inputJson)).then(
-				({ error }) => {
-					if (error !== null)
-						scheduleLog.error(
-							ScheduleError.RunFailed({ app, action: name, cause: error }),
-						);
-				},
-			);
+			if (occurrence !== null && occurrence <= current)
+				// Nobody awaits a scheduled run; the runner's line records how it ended.
+				void callAction(program, { app, action, input: parseJson(inputJson) });
 		}
 	}
 	tick();

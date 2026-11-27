@@ -257,10 +257,8 @@ the clock. A serve that finishes starting at 8:00 or later waits until tomorrow
 for the example above.
 
 Bare `epicenter` lists each schedule and its next occurrence. Serve calls
-scheduled actions through the usual action runner, which writes its usual
-line to stderr for a run that began. Nobody receives a scheduled run's
-answer, so when it is an error, including one that never began, serve also
-logs that error's name and message. After a restart the
+scheduled actions through the usual action runner. Nobody receives a
+scheduled run's answer, so the runner's line on stderr is its only trace. After a restart the
 clock considers future occurrences. Apps own any saved results.
 
 ## Not built yet
@@ -351,16 +349,17 @@ a rule here in the same pull request as the code.
   `errors` list on each action (a page already infers the names from
   `run`, and an agent reads the description).
 - **An action call is a function call: serve keeps no run history, receipt
-  or replay, only one line on stderr when a run ends (app, action, duration,
-  and the error's name or `null`; never the input or the result).** What
-  must outlast a call goes in a file, and progress goes through `run`'s
-  second argument. The line is a record that a run happened, so it is `info`
-  whether or not the action answered with an error; the caller has the error.
-  A scheduled run has no caller, so serve logs its error's message too. That
-  message is whatever the action wrote or threw, so an action that runs on a
-  schedule keeps private data out of its error messages.
+  or replay, only one line on stderr when a call ends (app, action, duration,
+  and the error's name and message, or `null`; never the input or the
+  result).** What must outlast a call goes in a file, and progress goes
+  through `run`'s second argument. The line records that a call happened, so
+  it is `info` whether or not the answer was an error, and a call that never
+  began has one too. It is complete by itself because a scheduled run has no
+  caller to hold the error. The message is whatever the action wrote or
+  threw, so an action keeps private data out of its error messages.
   Refused: `async function*` and `yield`; an ambient `report()`; the whole
-  error on the line, whose fields can hold a record.
+  error on the line, whose fields can hold a record; a second line from the
+  scheduler, which left each failed run as two partial records.
 - **A caller leaving aborts `run`'s `signal` and stops nothing by itself.**
   A command interrupted after starting a send must not cancel it halfway,
   and a stream of changes must stop listening once its page is gone. The

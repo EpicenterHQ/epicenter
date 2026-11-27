@@ -219,6 +219,31 @@ test('a call serve refuses is one NotStarted line, and nothing runs', async () =
 	expect(await readdir(folder)).toEqual([]);
 });
 
+test('a refused call leaves one record with its name and message, like a run', async () => {
+	const { request } = await setup();
+	const written: string[] = [];
+	const write = process.stderr.write;
+	process.stderr.write = ((text: string) => {
+		written.push(text);
+		return true;
+	}) as typeof process.stderr.write;
+	try {
+		await lines(await request('/actions/nope/add', post('{}')));
+	} finally {
+		process.stderr.write = write;
+	}
+	const records = written
+		.map((line) => JSON.parse(line))
+		.filter((event) => event.source === 'epicenter/run');
+	expect(records).toHaveLength(1);
+	expect(records[0].data).toMatchObject({
+		app: 'nope',
+		action: 'add',
+		error: 'NotStarted',
+		message: 'There is no app "nope"',
+	});
+});
+
 test('a throw is Threw, and so is a value that is not a Result or a reserved name', async () => {
 	const { request } = await setup();
 	const [threw] = await lines(await request('/actions/writing/fail', post({})));
