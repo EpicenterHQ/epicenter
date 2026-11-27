@@ -63,7 +63,7 @@ Whoever hosts your Git backup can read what you push, including committed
 files and their history. A separate computer backup may also include app
 state and sign-ins. [What you can recover](vision.md#where-edits-count)
 
-## Outside apps
+## Services
 
 A service such as Gmail holds its own data. An app can read or change it
 through an action using your sign-in. Your local copies follow the same

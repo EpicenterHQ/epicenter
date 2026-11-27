@@ -48,7 +48,7 @@ sentence carries:
 - macOS, Windows, and Linux, somewhere on the surface (platform badges or
   adjacent copy count)
 
-Whispering is an outside app: it works without an Epicenter. The proof line
+Whispering is a program: it works without an Epicenter. The proof line
 says the company ships, not that Whispering runs on a computer.
 
 Roadmap language stays out of heroes.
@@ -69,7 +69,7 @@ Roadmap language stays out of heroes.
 ## What Epicenter is not
 
 - Not a hosted product: your Epicenter runs on your computer. A service the company
-  might host is an outside app like Gmail.
+  might host is a service like Gmail.
 - Not sync: the person's other devices keep no copy and reach the one on the
   computer. Epicenter never reconciles two writable copies
   ([the vision's core invariants](vision.md#core-invariants)).
@@ -101,8 +101,8 @@ without their own systemd unit or LaunchAgent
 ## Vocabulary
 
 Use the word a person already has on public surfaces: app, file, folder, your
-computer. Developer docs use the vision's words: the Epicenter, an inside app, an
-outside app, a program, a service ([vision](vision.md), "The pieces").
+computer. Developer docs use the vision's words: the Epicenter, an app, a program,
+a service ([vision](vision.md), "The pieces").
 
 - "Server" means someone else's computer, and "hosted" means someone else runs
   it. A person's own computer is where the Epicenter lives, never their server.

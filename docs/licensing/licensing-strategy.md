@@ -40,7 +40,7 @@ Epicenter supplies the program, and the person supplies the computer, one
 they control, owned or rented ([vision](../vision.md)).
 Revenue is meant to come from services Epicenter hosts. None runs today: the
 hosted API is retired for now, and hosted Notes is not built yet.
-To a person's Epicenter each one is an outside app, like Gmail.
+To a person's Epicenter each one is a service, like Gmail.
 
 So the license has two jobs. On the hosted services it is the revenue
 backstop (scenario 4). On the program and the apps people run themselves it
