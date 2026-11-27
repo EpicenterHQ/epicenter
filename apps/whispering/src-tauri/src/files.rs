@@ -40,7 +40,9 @@ pub async fn files_read<R: Runtime>(
 #[tauri::command]
 pub async fn files_size<R: Runtime>(app: AppHandle<R>, dir: String) -> Result<u64, String> {
     if !is_plain(&dir) {
-        return Err(format!("{dir:?} is not a plain path in Whispering's folder"));
+        return Err(format!(
+            "{dir:?} is not a plain path in Whispering's folder"
+        ));
     }
     let dir = data_dir(&app)?.join(dir);
     tauri::async_runtime::spawn_blocking(move || size(&dir))

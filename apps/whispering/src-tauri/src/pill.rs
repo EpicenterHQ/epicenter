@@ -41,7 +41,10 @@ pub fn open(app: &AppHandle) -> tauri::Result<()> {
     let panel = PanelBuilder::<_, PillPanel>::new(app, LABEL)
         .url(page())
         .title("Whispering pill")
-        .size(tauri::Size::Logical(tauri::LogicalSize { width: WIDTH, height: HEIGHT }))
+        .size(tauri::Size::Logical(tauri::LogicalSize {
+            width: WIDTH,
+            height: HEIGHT,
+        }))
         .level(PanelLevel::Status)
         // This style bit is what keeps a click from activating Whispering;
         // `no_activate` covers only opening the panel.
@@ -53,8 +56,17 @@ pub fn open(app: &AppHandle) -> tauri::Result<()> {
         .corner_radius(HEIGHT / 2.0)
         .no_activate(true)
         // A click lands on Stop even though the panel is never the active window.
-        .with_window(|window| window.decorations(false).transparent(true).accept_first_mouse(true))
-        .collection_behavior(CollectionBehavior::new().can_join_all_spaces().full_screen_auxiliary())
+        .with_window(|window| {
+            window
+                .decorations(false)
+                .transparent(true)
+                .accept_first_mouse(true)
+        })
+        .collection_behavior(
+            CollectionBehavior::new()
+                .can_join_all_spaces()
+                .full_screen_auxiliary(),
+        )
         .build()?;
     panel.hide();
     Ok(())
