@@ -28,7 +28,7 @@
   <a href="#try-the-cli">Try the CLI</a> |
   <a href="#how-it-works">How it works</a> |
   <a href="#status">Status</a> |
-  <a href="#trust-boundaries">Trust</a> |
+  <a href="docs/vision.md#who-can-read-your-files">Trust</a> |
   <a href="#repo-map">Repo map</a> |
   <a href="#development">Development</a> |
   <a href="#license">License</a>
@@ -94,17 +94,15 @@ needs no Epicenter. The hosted API is retired for now.
 The folder sync product that came before is retired. Some of its
 code stays here while Whispering imports it.
 
-## Trust boundaries
-
-The [trust model](docs/trust-model.md) explains who can reach your home and
-read your records, including copies on other devices and in backups.
+Anyone who can reach your Epicenter's computer can do everything in it.
+[Who can read your files](docs/vision.md#who-can-read-your-files) says what
+that means for teams, rented computers, and backups.
 
 ## Repo map
 
 ### Apps
 
-Applications under `apps/` are programs that work without an Epicenter
-([apps/README.md](apps/README.md)).
+Applications under `apps/` are programs that work without an Epicenter.
 
 | App | What it is |
 | --- | --- |
@@ -128,16 +126,16 @@ Whispering's own packages are under
 ~/Epicenter                    your Epicenter, on your computer
   package.json                 its "epicenter" key marks the folder and names the port
   epicenter.ts                 the program: data keys, and the apps composed from them
-  AGENTS.md                    sent to every MCP client as instructions
+  AGENTS.md                    instructions for agents working in the folder
   apps/<app>/                  an app's code: a function of your Epicenter's data
   data/<key>/<id>.md           the records, in the private root history
-  local/                       caches and sign-ins, ignored by Git
+  .epicenter/                  this computer's caches, sign-ins and app state, ignored by Git
 
 packages/app                   what epicenter.ts imports
 packages/app/src/command       epicenter: serve, MCP, and calls to serve
 ```
 
-[The vision](docs/vision.md) | [Trust model](docs/trust-model.md)
+[The vision](docs/vision.md)
 
 ## Development
 
@@ -176,7 +174,7 @@ bun run check          # the whole merge gate: the above plus unused code (knip)
 
 ## Design notes
 
-Each area's rules live in a `## Decisions` section of its README, beside the code they govern. [docs/history.md](docs/history.md) logs what Epicenter tried, kept, and turned down, and why. The old decision records are in the `adr-archive` Git tag. Specs in [specs/](specs) are in-flight design scaffolding rather than current truth. Start with [docs/README.md](docs/README.md).
+Each area's rules live in a `## Decisions` section of its README, beside the code they govern. [docs/history.md](docs/history.md) logs what Epicenter tried, kept, and turned down, and why. The old decision records are in the `adr-archive` Git tag. Specs in [specs/](specs) are in-flight design scaffolding rather than current truth. Start with [the vision](docs/vision.md).
 
 ## Contributing
 
@@ -188,11 +186,16 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 
 ## License
 
-Everything is [AGPL-3.0-or-later](licenses/LICENSE-AGPL-3.0). An MIT toolkit
-tier existed until 2026-08 and was dissolved; versions already published under
-MIT stay MIT for those versions.
+Epicenter is free and open source under the
+[AGPL](licenses/LICENSE-AGPL-3.0). Feel free to use it, change it, and run it
+for yourself however you like. Our only ask is that if you share it with
+others, whether you give it away, sell it, or run a changed version as a
+service for them, you must share your source under the same license, so your improvements can come
+back to the community.
 
-See the root [LICENSE](LICENSE), [FINANCIAL_SUSTAINABILITY.md](FINANCIAL_SUSTAINABILITY.md), and the [licensing strategy](docs/licensing/licensing-strategy.md) for the full model.
+If you or your team want a hand setting it up or building your apps, I plan to
+offer paid support. I started Epicenter as a hobbyist building software for
+myself, and support is how I plan to keep it free for everyone doing the same.
 
 ---
 

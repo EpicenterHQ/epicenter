@@ -7,8 +7,7 @@ the owner's devices and agents. The earlier folder sync product is retired.
 Some of its packages still have callers in Whispering. The hosted API is retired for now.
 
 For orientation, read the relevant app or package README and verify it against
-current code. `apps/README.md` lists the apps in this repository; package
-READMEs describe their contracts. Load only the context needed for the task.
+current code. Package and app READMEs describe their contracts. Load only the context needed for the task.
 
 ## License
 
@@ -17,10 +16,8 @@ which holds the library and the `epicenter` command, is the one package meant
 to be published, so an Epicenter can depend on it; it is not on npm yet. Every other
 package is private. `@epicenter/cli` is retired
 at its last published version.
-Previously published MIT versions remain MIT for those versions. Before adding
-an MIT package, read "If MIT returns" in
-`docs/licensing/licensing-strategy.md`: a named embedder and restored dependency
-closure enforcement are required.
+Previously published MIT versions remain MIT for those versions. Do not add an
+MIT package; `docs/history.md` records why the MIT tier was dropped.
 
 ## Always use bun
 

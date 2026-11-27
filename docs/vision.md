@@ -4,7 +4,9 @@
 you control. Use your own apps to work with them, from your phone, your laptop,
 or with an agent. Keep the work in files you can take with you.**
 
-Epicenter is where one person's software lives. `~/Epicenter` is on a computer
+Epicenter is where one person's software lives. Anyone who can reach its
+computer can do everything in it, so people who share an Epicenter share
+everything; separate access means a separate Epicenter. `~/Epicenter` is on a computer
 you control and keep on. Today that is a computer you own. A rented
 one you control is allowed and gets its own setup later. Your Epicenter, the
 folder, is one private Git repository and one Bun project: its root `epicenter.ts`
@@ -45,6 +47,31 @@ cannot reach it. For the listener, see
 [the epicenter command](../packages/app/README.md#the-command-and-serve).
 Keeping `serve` running is your job (a terminal, launchd or systemd); Epicenter
 writes no service job.
+
+## Who can read your files
+
+**Whoever can read your computer can read your Epicenter.** On a computer you
+own, that is you and whatever you let in: a user account, a backup tool, an
+agent you give a shell. On a rented computer, the provider can also read the
+disk and its snapshots, `.epicenter/` included. Epicenter relies on the
+computer for encryption at rest.
+
+**Whoever reaches `serve` can do everything.** It signs no one in, so anything
+that reaches it can call every action of every app. There are no roles or
+per-person permissions inside an Epicenter. A team whose members trust each
+other equally can share one; people who need separate access each run their
+own, and an agent can connect to several. Never tunnel the port: `serve`
+refuses the tunnels it recognizes, but one it cannot recognize would reach it
+with no sign-in.
+
+**The code you run is trusted.** `serve` imports every app into one process
+with your privileges and no sandbox. An app you copy from someone else runs
+its author's code, so read it as you would any program you install.
+
+**Copies elsewhere follow their own access.** Whoever hosts your Git backup
+can read what you push. A device that keeps an app's offline copy exposes it
+to whoever can read that device's browser storage. A model endpoint sees what
+you send it.
 
 ## Core invariants
 
@@ -150,7 +177,7 @@ Mail (cached) and Messages (live) are the author's and are not published.
 
 An agent on another device can call the home to read a record or run an
 action. The home supplies service credentials when an action needs them.
-[Trust model](trust-model.md)
+[Who can read your files](#who-can-read-your-files)
 
 Agents make apps: you start Claude Code on that computer, ask for an app, and it
 writes its code in `apps/`, its data keys in `epicenter.ts`, and its records.
