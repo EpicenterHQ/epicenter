@@ -35,9 +35,8 @@ recover what must survive.
 
 For a larger design, use the [concept inventory](references/concept-inventory.md)
 to track what responsibilities disappear or move. Use
-[rethink](../rethink/SKILL.md) when the question is the whole design and
-[product-collapse](../product-collapse/SKILL.md) when an omission changes
-what someone can do or expect.
+[rethink](../rethink/SKILL.md) when the question is the whole design or when
+an omission changes what someone can do or expect.
 
 ## Use the current code as evidence
 

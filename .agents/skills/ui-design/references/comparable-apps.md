@@ -45,7 +45,7 @@ give identity different prominence.
 3. Write one line per app in a table with only the columns the question needs.
 4. State which pattern Epicenter borrows and which it refuses.
 5. When the refusal may delete disproportionate complexity, use
-   the asymmetric wins section of [product-collapse](../../product-collapse/SKILL.md).
+   the "What could we refuse?" section of [rethink](../../rethink/SKILL.md).
 
 Common useful questions include whether identity appears in chrome, whether
 sync status is prominent, whether the app supports account switching, whether

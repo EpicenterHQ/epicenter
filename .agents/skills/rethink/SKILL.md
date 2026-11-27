@@ -1,6 +1,6 @@
 ---
 name: rethink
-description: Reconsider accumulated fixes, exceptions, and decisions in light of the original purpose. Use when the user asks to rethink from first principles, explore greenfield or radical alternatives, redraw the line of best fit, or reconsider the question, assumptions, or boundaries shaping the current approach.
+description: Reconsider accumulated fixes, exceptions, and decisions in light of the original purpose. Use when the user asks to rethink from first principles, explore greenfield or radical alternatives, redraw the line of best fit, or reconsider the question, assumptions, or boundaries shaping the current approach. Also use when exploring simpler product behavior (workflows, settings, modes, fidelity, or scope) or judging asymmetric wins, meaning whether refusing a small promise would remove disproportionate complexity.
 ---
 
 # Rethink
@@ -47,7 +47,8 @@ the whole would have to understand or do. Ask what can be reused or
 recomposed, and which distinctions still matter. Look for an organizing
 principle from which the parts follow.
 
-For example, changing a setting may not require editing a running handle.
+Often a change only needs to take effect when something starts. For
+example, changing a setting may not require editing a running handle.
 Restarting the app or refreshing the page can reuse its startup process
 to create the handle with the new setting, removing the need for live
 reconfiguration. Weigh the interruption and any lost work against the
@@ -74,6 +75,37 @@ one, propose that change and explain its consequences. Check limits you're
 unsure about. Note what switching designs would cost, and explore the new
 design before deciding whether to make that switch.
 
+## What could we refuse?
+
+Removing features, steps, or state is a consequence, not the goal. If the
+proposed direction changes what the product is for, say so plainly.
+
+Look for asymmetric wins. Could giving up 10 to 20 percent of the features
+remove 80 to 90 percent of the complexity? Look for one small promise that
+drags a lot of code along with it: a fast path, an old format, a rare mode,
+a compatibility alias, a fallback parser, exact reproduction. Write down
+what people lose and the deletion prize, the code that goes away with it.
+Then check that the product still does what it is for. A second way of
+doing something looks cheap to add, but it has to be kept working forever.
+
+Be careful with a promise that touches data already stored or an API other
+people call. Dropping a reader for old data on disk, or a published export,
+loses something people can't get back. Read
+[durable contracts](../code-collapse/references/durable-contracts.md) first.
+
+Choose the smallest loss that removes the second way, not simply the
+biggest deletion.
+
+For example, letting browser apps sign in with Google's one-tap costs a
+second of speed, but it forces a separate sign-in path, helpers, an error
+state, and two sets of docs and tests. Refusing it makes Google sign-in a
+few seconds slower and leaves one path for every provider.
+
+When the subject is how a product behaves (its workflows, settings, modes,
+fidelity, or scope), read [product behavior](references/product-behavior.md).
+[Deletion prizes](references/deletion-prizes.md) shows the bargain when a
+person takes on an explicit obligation in exchange.
+
 ## Return to the particulars
 
 Take the newly imagined whole back to the cases, corrections, and decisions
@@ -98,5 +130,11 @@ design again.
 A better design may reveal a distinction worth keeping. It may improve the
 explanation while leaving the implementation intact. Keep the current
 design when it best serves the purpose; fewer rules or less code are useful
-consequences when the reasoning supports them.
+consequences when the reasoning supports them. Keeping a capability is a
+good outcome when it is worth what it costs.
+
+Agreement on a direction does not by itself authorize implementation. Use
+[code-collapse](../code-collapse/SKILL.md) to carry an authorized change
+through the code, starting with its "Carry it through" section. Use
+disposable data for app experiments.
 
