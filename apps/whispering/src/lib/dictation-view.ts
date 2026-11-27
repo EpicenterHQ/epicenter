@@ -58,11 +58,16 @@ export type Destination = 'clipboard' | 'cursor';
 export type Outcome =
 	| { kind: 'none' }
 	| { kind: 'transcribing'; id: string }
-	| { kind: 'delivered'; id: string; to: Destination }
+	/** `at` is when it landed, so the pill can step aside a moment later. */
+	| { kind: 'delivered'; id: string; to: Destination; at: number }
 	/** Paste at the cursor could not land; the text is on the clipboard instead. */
 	| { kind: 'copiedInstead'; id: string; why: string }
-	/** No text came out. The recording is kept; `fix` says where to repair the cause. */
-	| { kind: 'failed'; id: string; why: string; fix?: Fix };
+	/**
+	 * No text came out. The recording is kept. `label` is a few words that
+	 * fit the pill ("Needs a key"); `why` is the sentence Home shows; `fix`
+	 * says where to repair the cause.
+	 */
+	| { kind: 'failed'; id: string; label: string; why: string; fix?: Fix };
 
 /** Where a person goes to fix something: a link in the window. */
 export type Fix = { label: string; href: string };
@@ -106,6 +111,12 @@ export type DictationView = {
 
 	/** Start a take from the window, or stop the one under way. */
 	toggle(): void;
+	/** Stop the take under way and throw it away: nothing is kept or transcribed. */
+	cancel(): void;
+	/** Clear the latest take's outcome, once the person has seen it. */
+	dismiss(): void;
+	/** Bring Whispering's window forward, at the recording `id` when given. */
+	show(id?: string): void;
 	/** Turn hands-free on or off; does nothing while it is unavailable. */
 	setHandsFree(on: boolean): void;
 	/** Transcribe the recording `id` again, then clean up and deliver it. */

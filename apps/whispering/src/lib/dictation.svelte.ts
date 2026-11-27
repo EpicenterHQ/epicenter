@@ -132,7 +132,12 @@ function createDictation() {
 		if (error) return toastOnError(error, 'Could not finish the recording');
 		const saved = await runMutation(queryClient, recordingsMutations.add, data);
 		if (saved.error) {
-			outcome = { kind: 'failed', id: data.id, why: saved.error.message };
+			outcome = {
+				kind: 'failed',
+				id: data.id,
+				label: 'Not saved',
+				why: saved.error.message,
+			};
 			return toastOnError(saved, 'Could not save the recording');
 		}
 		await transcribe(data.id);
@@ -156,6 +161,7 @@ function createDictation() {
 			outcome = {
 				kind: 'failed',
 				id,
+				label: 'Needs a server',
 				why: 'No transcription server is set.',
 				fix: SERVER_SETTINGS,
 			};
@@ -187,6 +193,8 @@ function createDictation() {
 				outcome = {
 					kind: 'failed',
 					id,
+					label:
+						error.name === 'Unauthorized' ? 'Needs a key' : 'Not transcribed',
 					why: error.message,
 					fix: error.name === 'Unauthorized' ? SERVER_SETTINGS : undefined,
 				};
@@ -197,14 +205,24 @@ function createDictation() {
 				return;
 			}
 			if (!heard) {
-				outcome = { kind: 'failed', id, why: 'No speech was heard.' };
+				outcome = {
+					kind: 'failed',
+					id,
+					label: 'No speech heard',
+					why: 'No speech was heard.',
+				};
 				toast.info('No speech was heard');
 				return;
 			}
 			const replaced = replaceWords(heard, words.replacements);
 			const saved = await save({ id, transcript: replaced, original: heard });
 			if (saved.error) {
-				outcome = { kind: 'failed', id, why: saved.error.message };
+				outcome = {
+					kind: 'failed',
+					id,
+					label: 'Not saved',
+					why: saved.error.message,
+				};
 				return toastOnError(saved, 'Could not save the transcript');
 			}
 
@@ -248,10 +266,15 @@ function createDictation() {
 				catch: (cause) => DictationError.CopyFailed({ cause }),
 			});
 			if (copied.error) {
-				outcome = { kind: 'failed', id, why: copied.error.message };
+				outcome = {
+					kind: 'failed',
+					id,
+					label: 'Not copied',
+					why: copied.error.message,
+				};
 				return toastOnError(copied, 'Could not copy the transcript');
 			}
-			outcome = { kind: 'delivered', id, to: 'clipboard' };
+			outcome = { kind: 'delivered', id, to: 'clipboard', at: Date.now() };
 			if (notCleaned)
 				return toast.success('Copied without cleanup', {
 					description: notCleaned,
@@ -267,6 +290,20 @@ function createDictation() {
 			transcribing.delete(id);
 			cleaning.delete(id);
 		}
+	}
+
+	/** Stop the take under way and delete what it recorded. */
+	async function cancel() {
+		if (take.kind !== 'recording') return;
+		take = { kind: 'stopping' };
+		const { data, error } = await recorder.stop();
+		take = { kind: 'idle' };
+		if (error) return toastOnError(error, 'Could not stop the recording');
+		const removed = await runMutation(queryClient, recordingsMutations.delete, {
+			id: data.id,
+		});
+		if (removed.error)
+			return toastOnError(removed, 'Could not throw the recording away');
 	}
 
 	/** Save a transcript of a recording, in the recordings' one write queue. */
@@ -300,6 +337,17 @@ function createDictation() {
 		toggle(trigger: Trigger = 'button') {
 			if (take.kind === 'idle') return void start(trigger);
 			if (take.kind === 'recording') return void stop();
+		},
+
+		cancel: () => void cancel(),
+
+		dismiss() {
+			outcome = { kind: 'none' };
+		},
+
+		/** The pill has no window of its own yet, so this opens the place in this one. */
+		show(id?: string) {
+			void goto(id ? `/recordings?id=${encodeURIComponent(id)}` : '/');
 		},
 
 		setHandsFree(_on: boolean) {},

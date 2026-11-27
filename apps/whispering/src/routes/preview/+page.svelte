@@ -27,6 +27,7 @@
 		outcome?: Outcome;
 		silent?: boolean;
 		needs?: Need[];
+		cleaning?: boolean;
 	};
 
 	const ACCESSIBILITY: Need = {
@@ -53,14 +54,18 @@
 		{ label: 'Hands-free, listening', handsFree: { kind: 'listening' } },
 		{ label: 'Hands-free, heard speech', handsFree: { kind: 'listening' }, take: { kind: 'recording', startedAt: started, trigger: 'voice' } },
 		{ label: 'Saving', take: { kind: 'stopping' } },
+		{ label: 'Hands-free, previous phrase', handsFree: { kind: 'listening' }, outcome: { kind: 'transcribing', id: 'x' } },
 		{ label: 'Transcribing', outcome: { kind: 'transcribing', id: 'x' } },
-		{ label: 'Copied', outcome: { kind: 'delivered', id: 'x', to: 'clipboard' } },
-		{ label: 'Pasted', outcome: { kind: 'delivered', id: 'x', to: 'cursor' } },
+		{ label: 'Cleaning up', outcome: { kind: 'transcribing', id: 'x' }, cleaning: true },
+		{ label: 'Copied', outcome: { kind: 'delivered', id: 'x', to: 'clipboard', at: 0 } },
+		{ label: 'Pasted', outcome: { kind: 'delivered', id: 'x', to: 'cursor', at: 0 } },
 		{ label: 'Paste fell back', outcome: { kind: 'copiedInstead', id: 'x', why: 'the app in front would not take a paste.' } },
-		{ label: 'Failed: no key', outcome: { kind: 'failed', id: 'x', why: 'The server needs an API key.', fix: { label: 'Set up transcription', href: '/settings/transcription' } } },
+		{ label: 'Failed: no key', outcome: { kind: 'failed', id: 'x', label: 'Needs a key', why: 'The server needs an API key.', fix: { label: 'Set up transcription', href: '/settings/transcription' } } },
 	];
 
 	let scene = $state(READY);
+	/** When the scene was picked: a delivery lands then, so the pill's moment can be watched. */
+	let pickedAt = $state(Date.now());
 	/** A level that moves like speech, so the meters can be judged. */
 	let level = $state(0);
 	$effect(() => {
@@ -74,11 +79,17 @@
 		level: () => level,
 		silent: () => scene.silent ?? false,
 		handsFree: () => scene.handsFree ?? { kind: 'off' },
-		outcome: () => scene.outcome ?? { kind: 'none' },
+		outcome: () => {
+			const outcome = scene.outcome ?? { kind: 'none' };
+			return outcome.kind === 'delivered' ? { ...outcome, at: pickedAt } : outcome;
+		},
 		needs: () => scene.needs ?? [],
 		isTranscribing: () => false,
-		isCleaning: () => false,
+		isCleaning: () => scene.cleaning ?? false,
 		toggle: () => {},
+		cancel: () => {},
+		dismiss: () => (scene = READY),
+		show: () => {},
 		setHandsFree: () => {},
 		transcribe: () => {},
 		forget: () => {},
@@ -95,7 +106,10 @@
 				size="sm"
 				variant={scene === option ? 'secondary' : 'ghost'}
 				aria-pressed={scene === option}
-				onclick={() => (scene = option)}
+				onclick={() => {
+					scene = option;
+					pickedAt = Date.now();
+				}}
 			>
 				{option.label}
 			</Button>
@@ -110,7 +124,9 @@
 		</section>
 		<section class="flex flex-col gap-4" aria-label="Pill">
 			<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pill, over other apps</h2>
-			<div class="flex justify-center rounded-lg bg-muted p-8"><Pill /></div>
+			<div
+				class="flex h-24 w-72 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground empty:before:content-['Hidden:_nothing_is_happening']"
+			><Pill /></div>
 		</section>
 	</div>
 </main>
