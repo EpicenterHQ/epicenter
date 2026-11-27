@@ -177,25 +177,6 @@
 		</section>
 	</div>
 
-	<section class="mx-auto flex w-full max-w-4xl flex-col gap-3 p-6" aria-label="Recorder designs">
-		<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-			Recorder designs: pick a state above
-		</h2>
-		<div class="grid gap-x-6 gap-y-8 lg:grid-cols-2">
-			{#each [
-				{ look: 'mic', name: 'B. The microphone as the button (on Home now)' },
-				{ look: 'mic-glow', name: 'B2. The same, glowing with your voice' },
-				{ look: 'glow', name: 'C2. Centred, no ring: the light follows your voice' },
-				{ look: 'wave', name: 'C3. Centred, the voice spreading from the microphone' },
-			] as const as option (option.look)}
-				<div class="flex flex-col gap-2">
-					<span class="text-sm font-medium">{option.name}</span>
-					<RecorderPanel look={option.look} />
-				</div>
-			{/each}
-		</div>
-	</section>
-
 	<section class="mx-auto flex w-full max-w-4xl flex-col gap-3 p-6" aria-label="First run">
 		<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 			First run: the model is not downloaded

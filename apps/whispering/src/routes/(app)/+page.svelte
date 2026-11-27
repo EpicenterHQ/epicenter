@@ -51,32 +51,12 @@
 	);
 	let downloadError = $state<string>();
 
-	/**
-	 * Development only, while the recorder's design is open: the four drafts,
-	 * switched from a row above the recorder and remembered across reloads,
-	 * so each can be judged on the real Home with a real voice.
-	 */
-	const LOOKS = [
-		{ look: 'mic', name: 'B' },
-		{ look: 'mic-glow', name: 'B2' },
-		{ look: 'glow', name: 'C2' },
-		{ look: 'wave', name: 'C3' },
-	] as const;
-	type Look = (typeof LOOKS)[number]['look'];
-	const LOOK_KEY = 'whispering:dev:look';
-	let look = $state<Look>(
-		LOOKS.find((option) => option.look === localStorage.getItem(LOOK_KEY))?.look ?? 'mic',
-	);
-	function pick(next: Look) {
-		look = next;
-		localStorage.setItem(LOOK_KEY, next);
-	}
-
 	async function download(id: string) {
 		downloadError = undefined;
 		const { error } = await modelDownloads.start(id);
 		downloadError = error?.message;
 	}
+
 </script>
 
 <svelte:head><title>Whispering</title></svelte:head>
@@ -110,23 +90,7 @@
 		/>
 	{:else}
 		<div class="flex flex-col gap-2">
-			{#if import.meta.env.DEV}
-				<div class="flex items-center gap-1 text-xs text-muted-foreground" role="group" aria-label="Recorder design">
-					<span class="pr-1">Design</span>
-					{#each LOOKS as option (option.look)}
-						<Button
-							size="sm"
-							variant={look === option.look ? 'secondary' : 'ghost'}
-							class="h-7 px-2.5"
-							aria-pressed={look === option.look}
-							onclick={() => pick(option.look)}
-						>
-							{option.name}
-						</Button>
-					{/each}
-				</div>
-			{/if}
-			<RecorderPanel look={import.meta.env.DEV ? look : 'mic'} />
+			<RecorderPanel />
 			{#if unmet}
 				<NeedsLine />
 			{:else if transcribedBy}

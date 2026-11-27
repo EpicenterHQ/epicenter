@@ -78,6 +78,7 @@ src/
       local/                 local.ts (contract), native.ts, browser.ts: models on this computer
       pill/                  pill.ts (contract), native.ts, browser.ts: the two windows talking
     cleanup.ts               pure rules: the dictionary, when cleanup runs, what it is told
+    loudness.ts              a microphone's level as how loud it sounds, for every meter
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
 src-tauri/src/
@@ -224,9 +225,14 @@ again so the model cannot undo them.
   straight on the page, which gave each settings page its own shape.
 - **Home is three numbers, the recorder in a card, and the latest takes.**
   The numbers (days, words, words a minute) are counted from the
-  recordings each time, and show once there is a word. The record button
-  is a solid tile with an icon. Refused: the microphone picture as the
-  button, which at that size read as clip art; it is the logo, small.
+  recordings each time, and show once there is a word.
+- **The microphone picture is the record button, and the voice is the
+  only motion.** It sits centred in the card under a soft light; recording,
+  the light turns red and brightens with the voice, and bars ripple out
+  from both sides of the microphone, each one a moment behind the one
+  before (`VoiceWave`). Refused: a ring or a badge around the picture,
+  which read as decoration on a finished object; an icon on a tile, which
+  any app could have; and the picture alone on an empty page.
 - **Home says what is wrong once, in words.** A missing setup is one line
   under the recorder, and the sidebar only marks Settings. Refused: a card,
   a status count and a summary line saying the same thing three times.
