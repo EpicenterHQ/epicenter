@@ -15,3 +15,6 @@ rules keep that one page from asking where it runs. The
 - `src/lib/dictation.svelte.ts` is the one place the record, save,
   transcribe, clean up and copy sequence is written; `src/lib/cleanup.ts`
   holds its pure rules.
+- Screens read dictation through `getDictation()` (`DictationView` in
+  `src/lib/dictation-view.ts`); only `+layout.svelte` imports
+  `dictation.svelte.ts`.
