@@ -21,6 +21,51 @@ supported capability, or that narrows `unknown` input at an IPC, JSON, or
 `catch` boundary where the shape is not known yet. An adapter that accepts
 any member with a `subscribe` method is one.
 
+**Hand-rolled error inspection.** Code that pries a message or a kind out of
+an unknown thrown value instead of using Wellcrafted.
+
+```bash
+rg -n 'instanceof\s+\w*Error' <scope> --glob '*.ts' --glob '*.svelte'
+rg -n 'try\s*\{' <scope> --glob '*.ts' --glob '*.svelte'
+```
+
+`cause instanceof Error ? cause.message : String(cause)` is
+`extractErrorMessage(cause)` from `wellcrafted/error`. A `try`/`catch` that
+turns a failure into a value is `trySync` or `tryAsync`, with a
+`defineErrors` variant built from the raw `cause`. Branching on an error's
+class to decide what happened usually means the failure should be a tagged
+variant the caller can switch on by `name`. Keep `try`/`catch` where the
+`error-handling` skill says it expresses the contract, such as catching one
+known exception and rethrowing the rest.
+
+**Timers standing in for events.** A timer often waits for something that
+another part of the code already knows has happened.
+
+```bash
+rg -n 'setTimeout|setInterval|debounce|throttle|sleep\(|retry' <scope> --glob '*.ts' --glob '*.svelte'
+```
+
+For each, name the event the timer is guessing at. If the owner of that
+event can resolve a promise, emit, or return when it is done, wait on that
+instead. Keep a timer whose delay is the requirement: a user-facing debounce
+on typing, a scheduled job, backoff against a remote service, or a timeout
+that bounds work you do not control.
+
+**Hand-rolled async state.** Loading, saving, and error flags kept beside a
+request, and manual refetches after a write, recreate TanStack Query.
+
+```bash
+rg -n 'let\s+\w*(loading|Loading|pending|Pending|saving|busy|error)\w*\s*=\s*\$state' <scope> --glob '*.svelte' --glob '*.ts'
+rg -n '\$effect\(' <scope> --glob '*.svelte' --glob '*.ts'
+```
+
+Reads a page observes belong in `resultQueries` and writes in
+`resultMutations`. Refresh after a write is one invalidation rule on the
+`MutationCache`, and an optimistic update is the mutation's `onMutate` with
+rollback in `onError`. See the `query-layer` skill and its mutation
+lifecycle reference. An `$effect` that fetches and assigns is usually a
+query; one that copies state into other state is usually `$derived`.
+
 **Promise conversions that do nothing.** `.then(() => {})` written only to
 satisfy a narrow receiving type.
 
