@@ -11,7 +11,7 @@ recordings and transcripts, the audio beside each recording, and `settings.md`.
 
 ```text
 src/lib/format/layout.ts     the folder's paths and each note's fields, and why a note does not read
-src/lib/format/note.ts       a note as text: the home's Markdown grammar
+src/lib/format/note.ts       a note as text: the Epicenter's Markdown grammar
 src/lib/files/               Files: read, write, list, remove; tauri, opfs and memory, one conformance suite
 src/lib/notes.ts             one note collection over Files: list it, set, replace, delete
 src/lib/settings.ts          settings.md: the transcription model, the connections, the shortcut
@@ -63,7 +63,7 @@ shell's commands, and a real browser runs it against OPFS from the dev
 page. The shell's own Rust tests cover the commands, and `whispering-files`
 covers the write beside a target and the removal of leftovers.
 
-Notes are read and written in the home's Markdown grammar,
+Notes are read and written in the Epicenter's Markdown grammar,
 `@epicenter/app/markdown` (`src/lib/format/note.ts`): `key: <JSON>` lines
 between `---` fences, then the body. A change rewrites only the lines of
 the keys it names.

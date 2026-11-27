@@ -14,6 +14,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { collectHeadingSlugs } from './audit-skill-links.ts';
 
 const scriptPath = fileURLToPath(
 	new URL('./audit-skill-links.ts', import.meta.url),
@@ -200,4 +201,10 @@ test('the real skill tree has no dead links or anchors', () => {
 	expect(out).not.toContain('DEAD_LINK');
 	expect(out).not.toContain('DEAD_ANCHOR');
 	expect(code).toBe(0);
+});
+
+test('repeated headings get GitHub -1, -2 suffixes', () => {
+	const slugs = collectHeadingSlugs('# A\n\n## Same\n\n## Same\n\n## Same\n');
+
+	expect([...slugs].sort()).toEqual(['a', 'same', 'same-1', 'same-2']);
 });

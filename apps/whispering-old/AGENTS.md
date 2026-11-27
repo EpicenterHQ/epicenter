@@ -26,7 +26,7 @@ Read `README.md` for behavior and `ARCHITECTURE.md` for structure.
   first file command on a folder in a run removes what a crash left of
   those. Nothing waits in the app's local data directory on its way into
   the folder.
-- **Rust moves bytes; TypeScript reads notes.** Notes use the home's
+- **Rust moves bytes; TypeScript reads notes.** Notes use the Epicenter's
   Markdown grammar from `@epicenter/app/markdown` (`src/lib/format/note.ts`).
   Do not parse a note in Rust or copy the grammar.
 - **The folder is two TanStack queries; every write is a mutation.** The

@@ -12,7 +12,7 @@ Follow the [project writing conventions](../../../AGENTS.md#writing-conventions)
 
 A specification gives an agent or maintainer the context they need to implement a feature autonomously. The goal is not to describe everything exhaustively. The goal is to show enough evidence that the direction is credible and give the implementer a concrete launch point.
 
-**A spec is in-flight scaffolding, not the durable record.** It plans work and holds research while the work is underway. It is not authoritative and does not outlive the work. Built rules live in the `## Decisions` section of the README beside their code, what was tried and turned down in `docs/history.md`, shared vocabulary in `docs/vision.md` under "The pieces", and current state in package READMEs and the code. Keep a decision in the spec's decisions table while the work is underway. When the work lands, write its rule into the README and retire the spec using [the spec lifecycle](../../../specs/README.md#lifecycle). Git and `docs/spec-history.md` keep the history.
+**A spec is in-flight scaffolding, not the durable record.** It plans work and holds research while the work is underway. It is not authoritative and does not outlive the work. Built rules live in the `## Decisions` section of the README beside their code, what was tried and turned down in `docs/history.md`, shared vocabulary in `docs/vision.md` under "The pieces", and current state in package READMEs and the code. Keep a decision in the spec's decisions table while the work is underway. When the work lands, write its rule into the README and retire the spec using [the spec lifecycle](../../../specs/README.md#lifecycle). Git keeps the history.
 
 > **Note**: This guide uses `[PLACEHOLDER]` markers for content you must fill in. Code blocks show templates; replace all bracketed content with your feature's details.
 
@@ -288,9 +288,9 @@ Find actual usages in the codebase first. Show the verbatim "Before" with file:l
 ````markdown
 ## Call sites: before and after
 
-### Historical Honeycrisp notes migration
+### Example: a notes table migration
 
-**Before, abbreviated.** The original notes table is at `72a5f6ec37:apps/honeycrisp/src/lib/workspace.ts`, line 78. The translation below was a proposal.
+**Before, abbreviated** (in a real spec, cite the file and line):
 
 ```ts
 const notesTable = defineTable(

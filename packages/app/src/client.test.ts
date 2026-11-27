@@ -2,13 +2,14 @@ import { afterAll, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
+import { ActionError } from './answer.ts';
 import { connect } from './client.ts';
+import { programOf } from './command/program.ts';
 import { createHandler } from './command/serve.ts';
 import { defineData } from './data.ts';
 import { defineEpicenter } from './epicenter.ts';
-import { ActionError } from './errors.ts';
 import { field } from './field.ts';
 
 /** A home's epicenter.ts, as one module would write it. */
@@ -28,7 +29,7 @@ function flights({ watches }: Data) {
 		input: { id: field.text() },
 		async run({ id }) {
 			const { data: found, error } = await watches.get(id);
-			if (error) return ActionError.Refused({ message: error.message });
+			if (error) return Err(error);
 			if (!found) return ActionError.Missing({ path: `data/watches/${id}.md` });
 			// @ts-expect-error: watches has no field price, so typecheck fails.
 			found.price;
@@ -51,7 +52,7 @@ const home = defineEpicenter({ apps: { flights: flights(data) } });
 const server = Bun.serve({
 	hostname: '127.0.0.1',
 	port: 0,
-	fetch: createHandler({ folder, port: 0 }, { apps: home.apps }),
+	fetch: createHandler({ folder, port: 0 }, programOf(home)),
 });
 afterAll(async () => {
 	await server.stop(true);
@@ -69,8 +70,9 @@ test('a page calls an action by property, hearing its updates, and gets a Result
 	expect(steps).toEqual(['writing']);
 	expect(added.data?.to).toBe('Tokyo');
 	const idea = await epicenter.flights.idea({ id: 'tokyo' });
-	// The JSON form: an absent optional field is absent, not undefined.
-	expect(idea).toEqual(Ok({ to: 'Tokyo' }));
+	expect(idea).toEqual(Ok({ to: 'Tokyo', nights: undefined }));
+	// JSON drops the undefined field, which a page reads the same way.
+	expect(idea.data && Object.hasOwn(idea.data, 'nights')).toBe(false);
 	const missing = await epicenter.flights.idea({ id: 'osaka' });
 	expect(missing.error?.name).toBe('Missing');
 });
@@ -79,6 +81,12 @@ test('serve refusing the input reaches the page as NotStarted', async () => {
 	// @ts-expect-error: idea needs an id.
 	const refused = await epicenter.flights.idea({});
 	expect(refused.error?.name).toBe('NotStarted');
+});
+
+test('an input JSON cannot carry is NotStarted, and the call does not throw', async () => {
+	const answer = await epicenter.flights.idea({ id: 1n } as never);
+	expect(answer.error?.name).toBe('NotStarted');
+	expect(answer.error?.message).toStartWith('The input is not JSON');
 });
 
 test('the client and its apps are never thenable, so awaiting them is safe', async () => {
@@ -108,7 +116,7 @@ export function typed() {
 	void epicenter.flights.idea({ id: 'x' }).then(({ data, error }) => {
 		if (error) {
 			const name:
-				| 'Refused'
+				| 'Misfit'
 				| 'Missing'
 				| 'NotStarted'
 				| 'Threw'
@@ -117,5 +125,17 @@ export function typed() {
 		}
 		const nights: number | undefined = data.nights;
 		return nights;
+	});
+	defineAction({
+		description: 'Returns nothing as undefined',
+		input: {},
+		// @ts-expect-error: return null for nothing; undefined would arrive as null.
+		run: () => Ok(undefined),
+	});
+	defineAction({
+		description: 'An array JSON would change',
+		input: {},
+		// @ts-expect-error: an array holds no undefined.
+		run: () => Ok([1, undefined]),
 	});
 }

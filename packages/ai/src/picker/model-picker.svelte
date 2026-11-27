@@ -547,7 +547,7 @@
 					</div>
 
 					<p class="text-xs text-muted-foreground">
-						Requests go straight to this URL. Your Epicenter sign-in is never sent there.
+						Requests go straight to this URL.
 					</p>
 				{/if}
 			</fieldset>

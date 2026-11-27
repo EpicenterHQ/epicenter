@@ -3,21 +3,18 @@
  * reads, decides and replaces a file with no `await` in between, and two
  * requests serve runs at once never interleave on one file.
  *
- * - A write replaces a whole file at once, so a reader never sees half of it.
- * - A record's folder must be a real folder, not a link, so a write lands
- *   where a read looks, and never outside the home.
+ * A write replaces a whole file at once, so a reader never sees half of it.
  */
 
 import { randomUUID } from 'node:crypto';
 import {
 	chmodSync,
-	lstatSync,
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
 	renameSync,
 	rmSync,
-	statSync,
 	unlinkSync,
 	writeFileSync,
 } from 'node:fs';
@@ -33,70 +30,58 @@ function unlessMissing<T>(run: () => T) {
 	}
 }
 
-/**
- * The first part of the folder `relative` under `home` that is there but is
- * not a real folder, such as a link; undefined when every part present is
- * one. A missing part is fine: a write makes it.
- */
-export function firstNonFolder(home: string, relative: string) {
-	const parts = relative.split('/');
-	for (let end = 1; end <= parts.length; end++) {
-		const part = parts.slice(0, end).join('/');
-		const entry = lstatSync(join(home, part), { throwIfNoEntry: false });
-		if (entry === undefined) return undefined;
-		if (!entry.isDirectory()) return part;
-	}
-	return undefined;
-}
-
 /** The bytes of the file at `path`, or `undefined` when there is none. */
 export const readBytes = (path: string) =>
 	unlessMissing(() => readFileSync(path));
 
 /**
- * The names of the files directly in `folder`, a link to a file counting as
- * one, sorted; none when the folder is missing.
+ * The names of the files and links directly in `folder`, sorted; none when
+ * the folder is missing.
  */
 export function filesIn(folder: string) {
 	const entries =
 		unlessMissing(() => readdirSync(folder, { withFileTypes: true })) ?? [];
 	return entries
-		.filter(
-			(entry) =>
-				entry.isFile() ||
-				// A broken link has no target, so it is no file.
-				(entry.isSymbolicLink() &&
-					statSync(join(folder, entry.name), {
-						throwIfNoEntry: false,
-					})?.isFile()),
-		)
+		.filter((entry) => entry.isFile() || entry.isSymbolicLink())
 		.map((entry) => entry.name)
 		.sort();
 }
 
 /**
- * Replace the file at `path` under `home` with `bytes` at once. The bytes go
- * to a file in `local/.tmp/` and are renamed over the target, so a commit
- * made meanwhile finds nothing unfinished under `data/`. A file that is
- * replaced keeps its mode. When the write makes `local/`, it also writes
- * `local/.gitignore`, so the temporary files stay out of Git whatever the
- * root `.gitignore` says.
+ * Make `home`'s `.epicenter/` ready: there, readable by its owner alone
+ * (0700), with a `.gitignore` that keeps it out of Git whatever the root
+ * `.gitignore` says, and with `tmp/` for writes in progress. Answers its path.
  */
-export function replaceFile(home: string, path: string, bytes: Uint8Array) {
-	if (mkdirSync(join(home, 'local'), { recursive: true }) !== undefined)
-		writeFileSync(join(home, 'local', '.gitignore'), '*\n');
-	const temp = join(home, 'local', '.tmp');
+export function prepareEpicenter(home: string) {
+	const folder = join(home, '.epicenter');
+	mkdirSync(join(folder, 'tmp'), { recursive: true });
+	chmodSync(folder, 0o700);
+	const ignore = join(folder, '.gitignore');
+	if (!existsSync(ignore)) writeFileSync(ignore, '*\n');
+	return folder;
+}
+
+/**
+ * Replace the file at `path` all at once, making its folder, so a reader or a
+ * crash never finds half a file. Node's `writeFileSync` can leave one.
+ *
+ * ```ts
+ * replaceFile(join(state, 'settings.md'), text);
+ * ```
+ *
+ * The bytes wait in `temp`, which must be on the same disk as `path`.
+ */
+export function replaceFile(
+	path: string,
+	content: string | Uint8Array,
+	temp = join(dirname(path), '.tmp'),
+) {
 	mkdirSync(temp, { recursive: true });
-	const target = join(home, path);
-	mkdirSync(dirname(target), { recursive: true });
-	const found = statSync(target, { throwIfNoEntry: false });
-	const kept = found === undefined ? undefined : found.mode & 0o7777;
+	mkdirSync(dirname(path), { recursive: true });
 	const held = join(temp, randomUUID());
 	try {
-		writeFileSync(held, bytes, { mode: kept ?? 0o666 });
-		// The umask narrows a new file's mode; a kept mode is exact.
-		if (kept !== undefined) chmodSync(held, kept);
-		renameSync(held, target);
+		writeFileSync(held, content);
+		renameSync(held, path);
 	} catch (error) {
 		rmSync(held, { force: true });
 		throw error;

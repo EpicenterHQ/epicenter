@@ -10,8 +10,9 @@ const reporter = process.env.GITHUB_ACTIONS ? ['--reporter=github'] : [];
 await $`bun x biome lint --diagnostic-level=error ${reporter}`;
 await $`bun run typecheck`;
 await $`bun run test`;
+// Unused files, exports and dependencies, per knip.jsonc.
+await $`bun x knip --no-progress`;
 await $`bun run check:doc-paths`;
 await $`bun run check:catalog-pins`;
 await $`bun run check:ui-boundary`;
 await $`bun run check:boot-purity`;
-await $`bun run check:vocabulary`;

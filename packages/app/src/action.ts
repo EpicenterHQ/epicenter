@@ -25,28 +25,47 @@
  * An update reports and is never the answer: a caller that does not listen
  * loses nothing. An action is also an async function, so a test awaits it
  * directly; a direct call skips the input check serve makes.
+ *
+ * `run`'s third argument, `signal`, aborts when the caller is gone: the page
+ * closed, the command was stopped, or the connection dropped. An action that
+ * ignores it runs to the end, so leaving never stops one by itself. One that
+ * only reports, such as a stream of changes, returns when it aborts:
+ *
+ * ```ts
+ * async run(_input, update: Update<string>, signal) {
+ *   const stop = onChange((change) => update(change));
+ *   await new Promise((gone) => signal.addEventListener('abort', gone, { once: true }));
+ *   stop();
+ *   return Ok(null);
+ * }
+ * ```
  */
 
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Result } from 'wellcrafted/result';
-import { isResult } from './call.ts';
-import type { PublicError } from './errors.ts';
-import {
-	defaultIn,
-	type Flat,
-	type ObjectSchema,
-	objectSchema,
-} from './field.ts';
+import type { PublicError } from './answer.ts';
+import { type Flat, type ObjectSchema, objectSchema } from './field.ts';
 
 /** An action's input as an app writes it: a record of fields. */
 export type Input = Record<string, TSchema>;
 
 /**
- * What `run` calls to report while it runs. It returns at once and never
- * throws: what a listener returns is not awaited and what it throws is
- * dropped, so no caller can slow or stop the action.
+ * What `run` calls to report while it runs. Serve's listener returns at
+ * once, never throws, and drops an update once the caller is gone, so no
+ * caller can slow the action, and leaving stops only one that listens to
+ * `signal`. A test that passes its own `onUpdate`
+ * gets each value as `run` sends it.
  */
 export type Update<U> = (value: U) => void;
+
+/** How a caller listens for updates and signals that it has left. */
+export type CallOptions<U> = {
+	onUpdate?: (value: U) => unknown;
+	signal?: AbortSignal;
+};
+
+/** The signal a call without one gets: it never aborts. */
+const STAYING = new AbortController().signal;
 
 /**
  * An action: a function of its input that carries its description and its
@@ -56,7 +75,7 @@ export type Update<U> = (value: U) => void;
 // biome-ignore lint/suspicious/noExplicitAny: a bare Action is any action, whatever it takes and reports.
 export type Action<In = any, Out = unknown, U = any> = ((
 	input: In,
-	options?: { onUpdate?: (value: U) => unknown },
+	options?: CallOptions<U>,
 ) => Promise<Awaited<Out>>) & {
 	readonly description: string;
 	/**
@@ -65,6 +84,8 @@ export type Action<In = any, Out = unknown, U = any> = ((
 	 * Serve checks a call with it, and MCP and the listing show it.
 	 */
 	readonly input: ObjectSchema;
+	/** `false` when MCP leaves the action out; the command and a page still call it. */
+	readonly mcp?: false;
 };
 
 /** What the action `A` reports while it runs, `never` when it only returns. */
@@ -72,21 +93,37 @@ export type ActionUpdate<A> =
 	A extends Action<never, unknown, infer U> ? U : never;
 
 /**
- * What an action may return: a value that survives JSON. `undefined`
- * arrives as `null`, and a property that is `undefined` arrives absent.
+ * What an action may return or report: JSON, so a page receives the type
+ * `run` returned. A property may be `undefined`; it arrives absent, which a
+ * page reads the same way. Nothing else may be: return `null` for nothing.
  */
 type Returned =
 	| string
 	| number
 	| boolean
 	| null
-	| undefined
-	| void
 	| readonly Returned[]
-	| { readonly [key: string]: Returned };
+	| { readonly [key: string]: Returned | undefined };
 
-/** What `run` returns: a Result whose data survives JSON. */
-type RunResult = Result<Returned, PublicError>;
+/**
+ * What `run` may return as an error: a name, a message and JSON fields, so
+ * the error crosses to a caller whole. A `cause` that is an `Error` does not:
+ * JSON makes it `{}`, so it stays inside the action.
+ */
+type ReturnedError = PublicError & {
+	readonly [key: string]: Returned | undefined;
+};
+
+/** What `run` returns: a Result whose data and error are JSON. */
+type RunResult = Result<Returned, ReturnedError>;
+
+/** Every error name `run`'s Result can carry, `never` when it returns none. */
+type ErrorName<Out> =
+	Awaited<Out> extends infer R
+		? R extends { error: { name: infer N } }
+			? N
+			: never
+		: never;
 
 /** The value of `input`, as a caller gives it and `run` receives it. */
 type InputOf<I extends Input> = Flat<Static<TObject<I>>>;
@@ -101,91 +138,56 @@ type ActionDef<
 	readonly description: string;
 	/** Each key the action takes, as a field: `{ word: field.text() }`, `{}` for none. */
 	readonly input: I;
-	/** Return `Ok(data)` or `Err(error)`; `data` must survive JSON. */
-	run(input: InputOf<I>, update: Update<U>): Out;
+	/**
+	 * `false` to leave the action out of MCP, for one an agent must not
+	 * call, such as sending as the owner. The command and a page still call
+	 * it. Anything that can send HTTP to serve can still call it, so this
+	 * keeps the action from an agent that reaches your Epicenter only
+	 * through MCP.
+	 */
+	readonly mcp?: false;
+	/**
+	 * Return `Ok(data)` or `Err(error)`; `data` must survive JSON. `signal`
+	 * aborts when the caller is gone; an action may ignore it.
+	 */
+	run(input: InputOf<I>, update: Update<U>, signal: AbortSignal): Out;
 };
-
-/**
- * `update` for one call: it hands each value to `listener`, which cannot
- * reach the action. After `close`, a late update goes nowhere.
- */
-function updateChannel(listener: ((value: unknown) => unknown) | undefined) {
-	let open = listener !== undefined;
-	return {
-		update(value: unknown) {
-			if (!open) return;
-			try {
-				const heard = listener?.(value);
-				if (heard instanceof Promise) heard.catch(() => undefined);
-			} catch {
-				// A listener's failure is its own; the action goes on.
-			}
-		},
-		close() {
-			open = false;
-		},
-	};
-}
-
-/** `value`, or a throw when `run` returned something other than a Result. */
-function requireResult(value: unknown, description: string) {
-	if (!isResult(value))
-		throw new TypeError(
-			`The action "${description}" must return Ok(data) or Err(error)`,
-		);
-	return value;
-}
-
-/**
- * Marks what `defineAction` made, whose every answer it has checked.
- * Registered, so serve knows it whichever copy of this package made it.
- */
-const ACTION = Symbol.for('epicenter.action');
 
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields and every caller's `onUpdate` by `run`'s `update`. Calling the
  * action hands `run` the input as given: an absent field stays absent, and
- * `run` writes its own default. Throws for an empty description or a field
- * with a `default`, which its types cannot refuse.
+ * `run` writes its own default.
  */
 export function defineAction<
 	const I extends Input,
 	Out extends RunResult | Promise<RunResult>,
 	U extends Returned = never,
->(def: ActionDef<I, Out, U>): Action<InputOf<I>, Out, U>;
+>(
+	def: ActionDef<I, Out, U>,
+): string extends ErrorName<Out>
+	? // When an error name is any string, every name a page sees would be
+		// `string`. The app listing this gets the sentence in its type error,
+		// written inline so TypeScript prints it rather than an alias.
+		{
+			readonly 'Each error name must be fixed text: make the error with defineErrors, or write its name `as const`': never;
+		}
+	: Action<InputOf<I>, Out, U>;
 export function defineAction(
 	def: ActionDef<Input, RunResult | Promise<RunResult>, Returned>,
-): Action {
-	const { description, run } = def;
-	if (description.trim() === '')
-		throw new Error(
-			'An action needs a description: what it does, in a sentence',
+): unknown {
+	const { description, mcp, run } = def;
+	const action = async (given: unknown, options?: CallOptions<unknown>) =>
+		run(
+			given as never,
+			(value) => {
+				options?.onUpdate?.(value);
+			},
+			options?.signal ?? STAYING,
 		);
-	for (const [key, schema] of Object.entries(def.input))
-		if (defaultIn(schema))
-			throw new Error(
-				`The action "${description}" has a default in "${key}"; no field has one, so write the default in run, such as \`limit = 50\``,
-			);
-	const input = objectSchema(def.input);
-	const action = async (
-		given: unknown,
-		options?: { onUpdate?: (value: unknown) => unknown },
-	) => {
-		const { update, close } = updateChannel(options?.onUpdate);
-		try {
-			return requireResult(await run(given as never, update), description);
-		} finally {
-			close();
-		}
-	};
-	return Object.assign(action, { description, input, [ACTION]: true });
-}
-
-/** Whether `value` is what `defineAction` made. */
-export function isAction(value: unknown): value is Action {
-	return (
-		typeof value === 'function' &&
-		(value as { [ACTION]?: unknown })[ACTION] === true
-	);
+	return Object.assign(action, {
+		description,
+		input: objectSchema(def.input),
+		mcp,
+	});
 }

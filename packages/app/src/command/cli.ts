@@ -1,18 +1,27 @@
 /**
  * The `epicenter` command. It runs no app code: it finds its home by walking
- * up to the marker, and asks that home's serve. `epicenter serve` is the
- * process that imports the home's `epicenter.ts`.
+ * up to the marker, and asks that home's serve, reading the listing at
+ * `GET /actions/` and calling an action as a page does, with `postAction`.
+ * It never starts serve and never runs an action in its place.
+ * `epicenter serve` is the process that imports the home's `epicenter.ts`.
  */
 
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok } from 'wellcrafted/result';
 import packageJson from '../../package.json' with { type: 'json' };
-import type { Answer, AppListing, Listing } from '../call.ts';
-import { ActionError } from '../errors.ts';
+import { ActionError, type Answer } from '../answer.ts';
+import {
+	type AppListing,
+	actionPath,
+	fetchServe,
+	HOME_HEADER,
+	type Listing,
+	postAction,
+	type ScheduleListing,
+} from '../call.ts';
 import { isName } from '../name.ts';
 import { findHome, type Home } from './home.ts';
 import { printAnswer, writeErr } from './output.ts';
-import { callServe, fetchListing } from './send.ts';
 
 const HELP = `epicenter                          every app in this home
 epicenter <app>                    what an app can do
@@ -29,10 +38,49 @@ Exit codes: 0 done, 1 failed or may have run, 2 did not run.`;
 const usage = (message: string, next = 'epicenter --help') =>
 	ActionError.NotStarted({ message, next });
 
+/** Where the home's serve answers, and the header that names this home to it. */
+const serveOf = (home: Home) => ({
+	url: `http://127.0.0.1:${home.port}`,
+	headers: { [HOME_HEADER]: encodeURIComponent(home.folder) },
+});
+
+/** The listing serve answers at `GET /actions/`. */
+async function fetchListing(home: Home) {
+	const { url, headers } = serveOf(home);
+	const { data: response, error } = await fetchServe(
+		`${url}/actions/`,
+		{ headers },
+		'The connection to serve ended before its listing',
+	);
+	if (error !== null) return Err(error);
+	// Not JSON is the same as JSON that is no listing.
+	const listing = (await response.json().catch(() => undefined)) as
+		| Listing
+		| undefined;
+	if (Array.isArray(listing?.apps)) return Ok(listing);
+	return ActionError.Unreachable({ message: 'serve sent an invalid listing' });
+}
+
 /** Names in a column, each followed by its description. */
 function table(rows: [string, string][]) {
 	const width = Math.max(0, ...rows.map(([name]) => name.length));
 	return rows.map(([name, text]) => `${name.padEnd(width)}  ${text}`);
+}
+
+function scheduleText(schedule: ScheduleListing) {
+	const format = new Intl.DateTimeFormat('en-US', {
+		timeZone: schedule.timeZone,
+		year: 'numeric',
+		month: 'short',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit',
+		timeZoneName: 'short',
+	});
+	const next = schedule.nextRun
+		? format.format(new Date(schedule.nextRun))
+		: 'None';
+	return `  ${schedule.name} → ${schedule.action.join(' ')} · Next run ${next}`;
 }
 
 /** What bare `epicenter` prints. */
@@ -49,6 +97,9 @@ function homeText(listing: Listing, home: Home) {
 		...table(listing.apps.map((app) => [app.name, app.description])),
 		'',
 		'Run: epicenter <app>',
+		...(listing.schedules?.length
+			? ['', 'Scheduled actions', ...listing.schedules.map(scheduleText)]
+			: []),
 	].join('\n');
 }
 
@@ -102,11 +153,15 @@ async function runCommand(words: string[]): Promise<Answer> {
 		);
 	const { data: home, error } = findHome();
 	if (error) return Err(error);
-	if (app !== undefined && action !== undefined)
-		// Each update is one line of JSON on stderr, as it arrives.
-		return callServe(home, app, action, input ?? '{}', (update) =>
-			writeErr(JSON.stringify(update)),
-		);
+	if (app !== undefined && action !== undefined) {
+		const { url, headers } = serveOf(home);
+		// Serve reads and checks the input, as typed. Each update is one line
+		// of JSON on stderr, as it arrives.
+		return postAction(`${url}${actionPath(app, action)}`, input ?? '{}', {
+			headers,
+			onUpdate: (update) => writeErr(JSON.stringify(update)),
+		});
+	}
 	const { data: listing, error: unlisted } = await fetchListing(home);
 	if (unlisted) return Err(unlisted);
 	if (app === undefined) return Ok(homeText(listing, home));
@@ -130,9 +185,12 @@ export async function runCli(argv: string[]) {
 		return printAnswer(
 			usage(`${flag} is not an option; the options are --help and --version`),
 		);
+	// A throw may come after serve was asked, so the command cannot say
+	// whether the action ran: Unreachable, never NotStarted, which a script
+	// may retry.
 	return printAnswer(
 		await runCommand(argv).catch((cause) =>
-			ActionError.NotStarted({ message: extractErrorMessage(cause) }),
+			ActionError.Unreachable({ message: extractErrorMessage(cause) }),
 		),
 	);
 }

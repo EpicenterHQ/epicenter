@@ -13,7 +13,7 @@ Monorepo apps use `@epicenter/ui` subpaths. Components and extras are vendored i
 Epicenter own their copied `$lib/components/ui` source and theme. Read the
 [UI package guide](../../../../packages/ui/README.md) for imports, component
 selection, Vega styling, and the update workflow. Do not run an unpinned
-`shadcn-svelte add` or `jsrepo add` into the live package: generated files need
+`shadcn-svelte add` into the live package: generated files need
 review against the local overlay, imports, and component contracts.
 
 For a changed component's current API or composition, check its local source
@@ -780,13 +780,13 @@ A component prop can expose the same choice:
 
 ```svelte
 <!-- Before: materializes the projection at the use. -->
-<FujiSidebar entries={entries.values().toArray()} />
+<EntrySidebar entries={entries.values().toArray()} />
 
 <!-- After: caches the projection in script. -->
 <script lang="ts">
   const entriesArray = $derived(entries.values().toArray());
 </script>
-<FujiSidebar entries={entriesArray} />
+<EntrySidebar entries={entriesArray} />
 ```
 
 Choose the second when the projection benefits from caching or the child
@@ -817,19 +817,22 @@ ownership. Spinner choice and layout do not change who owns request state.
 
 ## Complete readiness gate
 
-For monorepo apps, a routine page or panel pending state uses `Loading`.
+For monorepo apps, a routine page or panel pending state centers a `Spinner`
+in a status region, as Whispering does while it opens.
 This example assumes `resource.whenReady` is stable and this block owns its
 failure presentation. Personal apps use their copied component imports.
 
 ```svelte
 <script lang="ts">
-  import { Loading } from '@epicenter/ui/loading';
+  import { Spinner } from '@epicenter/ui/spinner';
   import * as Empty from '@epicenter/ui/empty';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 </script>
 
 {#await resource.whenReady}
-  <Loading class="flex-1" label="Loading tabs..." />
+  <div class="flex flex-1 items-center justify-center" role="status" aria-label="Loading tabs">
+    <Spinner class="size-5" />
+  </div>
 {:then}
   <MainContent />
 {:catch}

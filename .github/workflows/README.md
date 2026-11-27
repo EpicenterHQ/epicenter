@@ -9,16 +9,15 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 | `deploy.{target}` | Web app deployment | Deployed web targets |
 | `ci.{name}` | Code quality checks | Whole repo |
 
-Web apps (Cloudflare Workers) deploy **together in one workflow** because deploys are fast (~2 min on a single runner) and share the same runtime setup. Each worker's build lives in its own `wrangler.jsonc` `build.command`, which Wrangler runs for both `deploy` and `versions upload`, so production, previews, and local `wrangler deploy` build through one definition. Repo-wide lint, typecheck, and unrelated package builds belong to CI.
+The landing site is the one web app; it deploys as a Cloudflare Worker. Its build lives in `apps/landing/wrangler.jsonc` `build.command`, which Wrangler runs for both `deploy` and `versions upload`, so production, previews, and local `wrangler deploy` build through one definition. Repo-wide lint, typecheck, and unrelated package builds belong to CI.
 
 ## Workflows
 
 ### Package releases
 
 No workflow builds or publishes `@epicenter/app`. It holds the library and
-the `epicenter` command, and is the one package a home depends on; the owner
-packs and publishes it by hand. See
-[releasing](https://github.com/EpicenterHQ/epicenter/blob/app-before-0971/packages/app/src/command/README.md#release).
+the `epicenter` command, and is the one package an Epicenter depends on; it is
+not on npm yet.
 
 ### Web Deployment (Cloudflare Workers)
 

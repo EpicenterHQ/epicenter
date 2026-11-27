@@ -13,13 +13,14 @@
  * `Unreachable` too. This module uses only web APIs, so a page's bundle can
  * carry it.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import {
 	ActionError,
+	type Answer,
+	isResult,
 	type NotStarted,
-	type PublicError,
 	type Unreachable,
-} from './errors.ts';
+} from './answer.ts';
 import type { ObjectSchema } from './field.ts';
 import { isPlainObject, parseJson } from './json.ts';
 
@@ -45,36 +46,24 @@ export type AppListing = {
 	actions: ActionListing[];
 };
 
+/** A schedule and its next occurrence. */
+export type ScheduleListing = {
+	name: string;
+	action: readonly [string, string];
+	cron: string;
+	timeZone: string;
+	nextRun: string | null;
+};
+
 /** Everything serve offers, as `GET /actions/` answers it. */
 export type Listing = {
 	/** The version of `@epicenter/app` serve runs. */
 	version: string;
 	apps: AppListing[];
+	schedules?: ScheduleListing[];
 	/** Why `epicenter.ts` did not load, when it did not; then there are no apps. */
 	problem?: string;
 };
-
-/** An action's answer on every surface: what it returned, or the error itself. */
-export type Answer = Result<unknown, PublicError>;
-
-/** Whether `value` is a Result: `{ data, error }` and nothing else. */
-export function isResult(value: unknown): value is Answer {
-	if (
-		!isPlainObject(value) ||
-		Reflect.ownKeys(value).length !== 2 ||
-		!Object.hasOwn(value, 'error') ||
-		!Object.hasOwn(value, 'data')
-	)
-		return false;
-	const { error } = value;
-	if (error === null) return true;
-	return (
-		value.data === null &&
-		isPlainObject(error) &&
-		typeof error.name === 'string' &&
-		typeof error.message === 'string'
-	);
-}
 
 /** Where an action is called, from serve's root. */
 export const actionPath = (app: string, action: string) =>
@@ -82,9 +71,8 @@ export const actionPath = (app: string, action: string) =>
 
 /** What a refusal status says, where serve's reason is known. */
 const REFUSED: Record<number, string> = {
-	403: 'serve refused the request: it came through a tunnel, or from another host or site',
+	403: 'serve refused the request: it came through Funnel, or from another host or site',
 	409: "The serve on this port is another home's; give this home another port in its package.json",
-	413: 'The input is larger than 25 MiB, the most serve takes',
 };
 
 /**
@@ -127,21 +115,21 @@ export async function fetchServe(
 	init: RequestInit,
 	ended: string,
 ): Promise<Result<Response, NotStarted | Unreachable>> {
-	const response = await fetch(url, init).catch((cause: unknown) =>
-		fetchFailed(cause, ended),
-	);
-	if (!(response instanceof Response)) return response;
+	const { data: response, error } = await tryAsync({
+		try: () => fetch(url, init),
+		catch: (cause) => fetchFailed(cause, ended),
+	});
+	if (error !== null) return Err(error);
 	if (response.status === 200) return Ok(response);
 	void response.body?.cancel().catch(() => undefined);
 	return statusFailed(response);
 }
 
 /** Tell the page about a listener's failure without ending the call. */
-function report(cause: unknown) {
-	const page = globalThis as { reportError?: (cause: unknown) => void };
-	if (page.reportError) page.reportError(cause);
-	else queueMicrotask(() => Promise.reject(cause));
-}
+const report = (cause: unknown) =>
+	queueMicrotask(() => {
+		throw cause;
+	});
 
 /** Hand `value` to `onUpdate`, reporting its failure instead of ending the call. */
 function hear(
@@ -168,9 +156,12 @@ export async function postAction(
 	{
 		headers,
 		onUpdate,
+		signal,
 	}: {
 		headers?: Record<string, string>;
 		onUpdate?: (value: unknown) => unknown;
+		/** Abandons the call: serve's `signal` for it aborts, and the call answers Unreachable. */
+		signal?: AbortSignal;
 	} = {},
 ): Promise<Answer> {
 	const cut = () => ActionError.Unreachable({ message: CUT });
@@ -180,6 +171,7 @@ export async function postAction(
 			method: 'POST',
 			headers: { 'content-type': 'application/json', ...headers },
 			body,
+			signal,
 		},
 		CUT,
 	);

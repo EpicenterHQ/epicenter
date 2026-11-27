@@ -13,8 +13,7 @@
  * (`epicenter flights daily`), the MCP tool prefix (`flights_daily`) and the
  * route (`/actions/flights/daily`).
  */
-import { type Action, isAction } from './action.ts';
-import { isName, NAME_RULE } from './name.ts';
+import type { Action } from './action.ts';
 
 /** An app as its function returns it: what it is for, and each action under its name. */
 export type App = {
@@ -22,59 +21,45 @@ export type App = {
 	readonly actions: { readonly [name: string]: Action };
 };
 
-/** Marks what `defineEpicenter` made. Registered, so serve knows it whichever copy of this package made it. */
-const EPICENTER: unique symbol = Symbol.for('epicenter.home');
+/** One scheduled call, with the input of its named action. */
+type Schedule<TApps extends Record<string, App>> = {
+	[AppName in keyof TApps & string]: {
+		[ActionName in keyof TApps[AppName]['actions'] & string]: {
+			readonly cron: string;
+			readonly action: readonly [AppName, ActionName];
+			readonly input: Parameters<TApps[AppName]['actions'][ActionName]>[0];
+		};
+	}[keyof TApps[AppName]['actions'] & string];
+}[keyof TApps & string];
 
-/** A home's program: its apps, by name. */
+/** A home's program: its apps and scheduled calls, by name. */
 export type Epicenter<TApps extends Record<string, App> = Record<string, App>> =
 	{
 		readonly apps: TApps;
-		readonly [EPICENTER]: true;
+		readonly schedules?: Readonly<
+			Record<
+				string,
+				{
+					readonly cron: string;
+					readonly action: readonly [string, string];
+					readonly input: unknown;
+				}
+			>
+		>;
 	};
 
-/** Whether `value` is what `defineEpicenter` returned. */
-export function isEpicenter(value: unknown): value is Epicenter {
-	return (
-		typeof value === 'object' &&
-		value !== null &&
-		(value as { [EPICENTER]?: unknown })[EPICENTER] === true
-	);
-}
-
 /**
- * Define a home's program from its apps. Throws, naming each problem, for a
- * name that is not lowercase letters, digits and dashes, an app with no
- * description, and an action `defineAction` did not make. Its type refuses
- * an app named `serve`, which is the command's own word.
+ * Define a home's program from its apps. Serve checks the names when it
+ * loads the program; an app named `serve`, the command's own word, is
+ * refused by the type.
  */
-export function defineEpicenter<
+export const defineEpicenter = <
 	const TApps extends Record<string, App> & { serve?: never },
->({ apps }: { apps: TApps }): Epicenter<TApps> {
-	const problems = appsProblems(apps);
-	if (problems.length) throw new Error(problems.join('\n'));
-	return Object.freeze({ apps, [EPICENTER]: true as const });
-}
-
-/** What is wrong with `apps` beyond its types, one sentence each. */
-function appsProblems(apps: Record<string, App>) {
-	const problems: string[] = [];
-	for (const [name, { description, actions }] of Object.entries(apps)) {
-		if (!isName(name))
-			problems.push(
-				`The app name ${JSON.stringify(name)} must be ${NAME_RULE}`,
-			);
-		if (description.trim() === '')
-			problems.push(`apps.${name} needs a description`);
-		for (const [action, value] of Object.entries(actions)) {
-			if (!isName(action))
-				problems.push(
-					`apps.${name} has the action ${JSON.stringify(action)}, which must be ${NAME_RULE}`,
-				);
-			else if (!isAction(value))
-				problems.push(
-					`apps.${name}.actions.${action} is not an action: make it with defineAction(...)`,
-				);
-		}
-	}
-	return problems;
-}
+>({
+	apps,
+	schedules,
+}: {
+	apps: TApps;
+	schedules?: Readonly<Record<string, Schedule<NoInfer<TApps>>>>;
+}): Epicenter<TApps> =>
+	schedules === undefined ? { apps } : { apps, schedules };

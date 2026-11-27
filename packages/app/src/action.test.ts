@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { Ok } from 'wellcrafted/result';
+import { Err, Ok } from 'wellcrafted/result';
 import { defineAction, type Update } from './action.ts';
 import { defineEpicenter } from './epicenter.ts';
 import { field } from './field.ts';
@@ -16,63 +16,36 @@ const count = defineAction({
 	},
 });
 
-test('a listener that throws does not stop the action', async () => {
-	const answer = await count(
-		{ to: 2 },
-		{
-			onUpdate: () => {
-				throw new Error('listener broke');
-			},
-		},
-	);
+test('a direct call hands each update to its listener', async () => {
+	const heard: unknown[] = [];
+	const answer = await count({ to: 2 }, { onUpdate: (n) => heard.push(n) });
 	expect(answer).toEqual(Ok('n=2'));
+	expect(heard).toEqual([{ at: 1 }, { at: 2 }]);
 });
 
-test('an action that returns no Result rejects when called', async () => {
-	const bare = defineAction({
-		description: 'Forgets its Result',
+test("a direct call's signal reaches run, and one without a signal never aborts", async () => {
+	const waits = defineAction({
+		description: 'Waits for its caller to leave',
 		input: {},
-		run: () => 'plain' as never,
+		async run(_input, _update, signal) {
+			if (!signal.aborted)
+				await new Promise((gone) =>
+					signal.addEventListener('abort', gone, { once: true }),
+				);
+			return Ok('left');
+		},
 	});
-	await expect(bare({})).rejects.toThrow('must return Ok(data) or Err(error)');
-});
+	const leave = new AbortController();
+	const answer = waits({}, { signal: leave.signal });
+	leave.abort();
+	expect(await answer).toEqual(Ok('left'));
 
-test('a definition is refused for what its types cannot say', () => {
-	expect(() =>
-		defineAction({
-			description: 'Has a default',
-			input: { limit: { type: 'number', default: 5 } as never },
-			run: () => Ok(null),
-		}),
-	).toThrow('has a default in "limit"');
-	expect(() =>
-		defineAction({ description: ' ', input: {}, run: () => Ok(null) }),
-	).toThrow('An action needs a description');
-});
-
-test('defineEpicenter refuses names that are not names, and what defineAction did not make', () => {
-	const app = { description: 'Counts', actions: { count } };
-	expect(defineEpicenter({ apps: { counter: app } }).apps.counter).toBe(app);
-	expect(() => defineEpicenter({ apps: { Counter: app } })).toThrow(
-		'The app name "Counter" must be lowercase letters',
-	);
-	expect(() =>
-		defineEpicenter({
-			apps: {
-				counter: { description: 'Counts', actions: { Count: count } },
-			},
-		}),
-	).toThrow('has the action "Count", which must be lowercase letters');
-	expect(() =>
-		defineEpicenter({
-			apps: {
-				counter: {
-					description: 'Counts',
-					actions: { count: (() => Ok(1)) as never },
-				},
-			},
-		}),
-	).toThrow('apps.counter.actions.count is not an action');
+	const seen = defineAction({
+		description: 'Reports whether it was asked to stop',
+		input: {},
+		run: (_input, _update, signal) => Ok(signal.aborted),
+	});
+	expect(await seen({})).toEqual(Ok(false));
 });
 
 /** Types only: checked, never run. */
@@ -80,4 +53,32 @@ export function typed() {
 	const app = { description: 'Counts', actions: { count } };
 	// @ts-expect-error: serve is the command's own word.
 	defineEpicenter({ apps: { serve: app } });
+
+	const fixed = defineAction({
+		description: 'Names its refusal',
+		input: { n: field.integer() },
+		run: ({ n }) =>
+			n > 0 ? Ok(n) : Err({ name: 'NotPositive' as const, message: 'n <= 0' }),
+	});
+	defineEpicenter({
+		apps: { counter: { description: 'Counts', actions: { fixed } } },
+	});
+
+	const loose = defineAction({
+		description: 'A name that is any string',
+		input: {},
+		run: () => Err({ name: 'Loose' as string, message: 'x' }),
+	});
+	defineEpicenter({
+		// @ts-expect-error: a loose name would make every name a page sees a string.
+		apps: { counter: { description: 'Counts', actions: { loose } } },
+	});
+
+	defineAction({
+		description: 'A cause cannot cross JSON',
+		input: {},
+		run: () =>
+			// @ts-expect-error: an Error as cause arrives as {}.
+			Err({ name: 'Broke' as const, message: 'x', cause: new Error('e') }),
+	});
 }

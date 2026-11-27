@@ -88,22 +88,31 @@ export function slugify(heading: string): string {
 		.replace(/\s+/g, '-');
 }
 
+/**
+ * Anchors GitHub generates for a document. A repeated heading gets `-1`, `-2`
+ * after its first occurrence, so both the plain and suffixed forms resolve.
+ */
 export function collectHeadingSlugs(markdown: string): Set<string> {
 	const slugs = new Set<string>();
+	const seen = new Map<string, number>();
 	for (const line of stripCode(markdown).split(/\r?\n/)) {
 		const heading = line.match(/^#{1,6}\s+(.*)$/);
-		if (heading?.[1]) slugs.add(slugify(heading[1]));
+		if (!heading?.[1]) continue;
+		const slug = slugify(heading[1]);
+		const count = seen.get(slug) ?? 0;
+		seen.set(slug, count + 1);
+		slugs.add(count === 0 ? slug : `${slug}-${count}`);
 	}
 	return slugs;
 }
 
 // `[text](target)` with an optional title. Targets with whitespace or nested
 // parens are not link syntax we write, so the simple form is enough.
-const LINK = /\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-const EXTERNAL = /^(https?|mailto|tel|ftp|data|thread):/i;
+export const LINK = /\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+export const EXTERNAL = /^(https?|mailto|tel|ftp|data|thread):/i;
 
 /** Does this target name a file, rather than being prose or a placeholder? */
-function isFileClaim(target: string): boolean {
+export function isFileClaim(target: string): boolean {
 	return target.includes('/') || /\.[A-Za-z0-9]+$/.test(target);
 }
 

@@ -6,21 +6,16 @@
 	"description": "Where one person's software lives: small apps as folders of plain files, run by the epicenter command on a computer you control.",
 	"keywords": [
 		"local-first",
-		"personal knowledge base",
-		"PKM",
-		"second brain",
-		"SQLite",
 		"markdown",
 		"open-source",
-		"self-hosted",
-		"workspace"
+		"self-hosted"
 	],
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/EpicenterHQ/epicenter.git"
 	},
 	"homepage": "https://epicenter.so",
-	"license": "SEE LICENSE IN LICENSE",
+	"license": "AGPL-3.0-or-later",
 	"author": "",
 	"workspaces": {
 		"packages": [
@@ -41,20 +36,17 @@
 			"bits-ui": "~2.21.0",
 			"mode-watcher": "^1.1.0",
 			"svelte-sonner": "^1.0.6",
-			"runed": "^0.36.0",
 			"@lucide/svelte": "^0.561.0",
 			"@tanstack/query-core": "5.107.1",
 			"@tanstack/svelte-query": "^6.4.1",
 			"nanoid": "^5.1.14",
-			"wellcrafted": "^0.47.0",
+			"wellcrafted": "^0.47.1",
 			"@ricky0123/vad-web": "^0.0.30",
 			"@biomejs/biome": "^2.5.15",
 			"wrangler": "^4.71.0",
 			"typebox": "^1.0.0",
-			"jsrepo": "^3.6.2",
 			"@tailwindcss/vite": "^4.1.11",
 			"@sveltejs/adapter-static": "^3.0.8",
-			"@tailwindcss/typography": "^0.5.19",
 			"@tauri-apps/api": "^2.12.0",
 			"@tauri-apps/plugin-dialog": "^2.8.3",
 			"@tauri-apps/plugin-http": "^2.5.0",
@@ -98,7 +90,6 @@
 		"check:doc-paths": "bun run scripts/check-doc-paths.ts",
 		"check:boot-purity": "bun run scripts/check-boot-purity.ts",
 		"check:catalog-pins": "bun run scripts/check-catalog-pins.ts",
-		"check:vocabulary": "bun run scripts/check-vocabulary.ts",
 		"worktrees": "bun run scripts/worktree-audit.ts",
 		"clean": "bun run scripts/clean.ts",
 		"nuke": "bun run scripts/clean.ts --nuke",
@@ -107,6 +98,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
 		"@types/bun": "catalog:",
+		"knip": "6.46.1",
 		"wrangler": "catalog:"
 	}
 }

@@ -65,7 +65,7 @@ body:
     id: contribution
     attributes:
       label: Willing to Contribute?
-      description: Would you be interested in helping implement this feature? First-time contributors sign a one-time CLA—see CONTRIBUTING.md for details.
+      description: Would you be interested in helping implement this feature? See CONTRIBUTING.md to get started.
       options:
         - "Yes, I can implement this"
         - "Yes, but I'd need guidance"

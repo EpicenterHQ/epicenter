@@ -12,56 +12,36 @@
  *
  * The home is imported as a type, so the page's bundle carries no app code.
  * Each call posts its input to `/actions/<app>/<action>` and resolves to a
- * Result: what the action returned in its JSON form, the action's own error,
+ * Result: what the action returned, the action's own error,
  * or one of the platform's: `NotStarted` (it never began), `Threw` (it began
- * and threw) or `Unreachable` (the outcome is unknown). An error does not
- * say what persisted; a page rereads its records to learn that.
+ * and threw) or `Unreachable` (the outcome is unknown). A call never throws:
+ * an input JSON cannot carry, such as a BigInt, is `NotStarted`, since
+ * nothing was sent. An error does not say what persisted; a page rereads
+ * its records to learn that.
  *
  * The client is a Proxy, and neither it nor an app on it answers `then`, so
  * `await connect()` is the client itself and never a call. An app or action
  * named `then` cannot be reached this way.
  */
-import type { Err, Ok, Result } from 'wellcrafted/result';
-import type { ActionUpdate } from './action.ts';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Err, type Ok, type Result, trySync } from 'wellcrafted/result';
+import type { ActionUpdate, CallOptions } from './action.ts';
+import {
+	ActionError,
+	type NotStarted,
+	type Threw,
+	type Unreachable,
+} from './answer.ts';
 import { actionPath, postAction } from './call.ts';
 import type { Epicenter } from './epicenter.ts';
-import type { NotStarted, Threw, Unreachable } from './errors.ts';
-import type { Flat } from './field.ts';
-import type { JsonValue } from './json.ts';
 
 export type {
 	ActionError,
 	NotStarted,
 	Threw,
 	Unreachable,
-} from './errors.ts';
-export { timeId } from './time.ts';
-
-/**
- * `T` as it arrives through JSON: `undefined` is `null`, and a property that
- * may be `undefined` may be absent.
- */
-type JsonOf<T> = unknown extends T
-	? T
-	: [T] extends [JsonValue]
-		? T
-		: T extends undefined | void
-			? null
-			: T extends string | number | boolean | null
-				? T
-				: T extends readonly unknown[]
-					? { [K in keyof T]: JsonOf<T[K]> }
-					: Flat<
-							{
-								[K in keyof T as undefined extends T[K] ? never : K]: JsonOf<
-									T[K]
-								>;
-							} & {
-								[K in keyof T as undefined extends T[K] ? K : never]?: JsonOf<
-									Exclude<T[K], undefined>
-								>;
-							}
-						>;
+} from './answer.ts';
+export { localTime, timeId } from './time.ts';
 
 /** What action `A` takes from a caller. */
 export type ActionInput<A> = A extends (input: infer In) => unknown
@@ -72,13 +52,15 @@ type ReturnedBy<A> = A extends (input: never) => infer Out
 	? Awaited<Out>
 	: never;
 
-/** What action `A` returns to a page, in its JSON form. */
-export type ActionOutput<A> = JsonOf<
-	Extract<Exclude<ReturnedBy<A>, Err<never>>, Ok<unknown>>['data']
->;
+/** What action `A` returns to a page: what its `run` returned. */
+export type ActionOutput<A> = Extract<
+	Exclude<ReturnedBy<A>, Err<never>>,
+	Ok<unknown>
+>['data'];
 
-type ReturnedError<A> = JsonOf<
-	Exclude<Extract<ReturnedBy<A>, Err<unknown>>['error'], null>
+type ReturnedError<A> = Exclude<
+	Extract<ReturnedBy<A>, Err<unknown>>['error'],
+	null
 >;
 
 /** What a call of action `A` resolves to. */
@@ -86,27 +68,23 @@ type Answered<A> = Promise<
 	Result<ActionOutput<A>, ReturnedError<A> | NotStarted | Threw | Unreachable>
 >;
 
-/** How a page listens to an action's updates. */
-type CallOptions<A> = {
-	onUpdate?: (value: JsonOf<ActionUpdate<A>>) => unknown;
-};
-
 /** An action's input argument, which may be left out when every key is optional. */
 type InputArg<A> =
 	Record<string, never> extends ActionInput<A>
 		? [input?: ActionInput<A>]
 		: [input: ActionInput<A>];
 
-/** `{ onUpdate }`, for an action that sends updates. */
+/** `{ onUpdate, signal }`, for an action that sends updates. */
 type OptionsArg<A> = [ActionUpdate<A>] extends [never]
 	? []
-	: [options?: CallOptions<A>];
+	: [options?: CallOptions<ActionUpdate<A>>];
 
 /**
  * One action as a page calls it: a function of its input, and of
- * `{ onUpdate }` when the action sends updates. One that sends none takes
- * one argument, so a helper that takes a function of one argument, such as
- * Wellcrafted's `resultMutations`, accepts it.
+ * `{ onUpdate, signal }` when the action sends updates. Abandoning the call
+ * aborts the action's signal and answers Unreachable. An action without
+ * updates takes one argument, so helpers like Wellcrafted's
+ * `resultMutations` accept it.
  */
 export type ActionCall<A> = (
 	...args: [...InputArg<A>, ...OptionsArg<A>]
@@ -139,6 +117,18 @@ function lazyKeys<T>(make: (name: string) => T) {
 }
 
 /**
+ * The URL of `path` under the home's `data/`, with each name encoded so a
+ * space, `#` or `?` stays part of it. Read it with `<video src>` or
+ * `fetch`; `PUT` a file to it.
+ *
+ * ```ts
+ * await fetch(dataUrl(`recordings/${id}.mp4`), { method: 'PUT', body: file });
+ * ```
+ */
+export const dataUrl = (path: string) =>
+	`/data/${path.split('/').map(encodeURIComponent).join('/')}`;
+
+/**
  * A client for the home whose `epicenter.ts` default export is `H`. `url` is
  * where serve answers, this origin's `/` by default: an action is
  * `POST <url>actions/<app>/<action>`.
@@ -151,16 +141,20 @@ export function connect<H extends Epicenter>({
 	const base = url.replace(/\/$/, '');
 	return lazyKeys((app) =>
 		lazyKeys(
-			(action) =>
-				(
-					input?: unknown,
-					options?: { onUpdate?: (value: unknown) => unknown },
-				) =>
-					postAction(
-						`${base}${actionPath(app, action)}`,
-						JSON.stringify(input ?? {}),
-						{ onUpdate: options?.onUpdate },
-					),
+			(action) => async (input?: unknown, options?: CallOptions<unknown>) => {
+				const { data: body, error } = trySync({
+					try: () => JSON.stringify(input ?? {}),
+					catch: (cause) =>
+						ActionError.NotStarted({
+							message: `The input is not JSON: ${extractErrorMessage(cause)}`,
+						}),
+				});
+				if (error !== null) return Err(error);
+				return postAction(`${base}${actionPath(app, action)}`, body, {
+					onUpdate: options?.onUpdate,
+					signal: options?.signal,
+				});
+			},
 		),
 	) as unknown as Client<H>;
 }

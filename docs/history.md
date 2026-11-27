@@ -815,9 +815,9 @@ See: ADR-0927.
 
 ADR-0943 allows a CRDT to own live edits inside one app, as long as one exporter writes a saved copy into the home and that copy is never edited as a peer; it refuses a collaboration protocol built into Epicenter. The same day a draft spec sketched it: the app relays Yjs updates over its own WebSocket, appends them to a log under `local/`, and a routine exports Markdown to `data/` as the copy that lasts. A lost `local/` costs the edits since the last export. Nothing is built.
 
-Reopen if: the first app that wants shared editing answers the spec's open questions (which editor, how a document maps to Markdown, when export and compaction run) and records the result.
+Reopen if: the first app that wants shared editing answers the draft's open questions (which editor, how a document maps to Markdown, when export and compaction run) and records the result.
 
-See: ADR-0943, specs/20261117T150000-shared-documents-with-yjs-on-fetch-and-websocket.md, a352e2199d.
+See: ADR-0943, a352e2199d (the draft; deleted unbuilt on 2026-11-19).
 
 ## 2026-11-17 · hosted-api · refused · API keys replace the hosted API's OAuth server
 
