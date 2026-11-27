@@ -14,10 +14,7 @@
     <img alt="GitHub stars" src="https://img.shields.io/github/stars/EpicenterHQ/epicenter?style=flat-square" />
   </a>
   <a href="#license">
-    <img alt="Apps license: AGPL-3.0" src="https://img.shields.io/badge/apps-AGPL--3.0-blue?style=flat-square" />
-  </a>
-  <a href="#license">
-    <img alt="Packages license: AGPL-3.0-or-later" src="https://img.shields.io/badge/packages-AGPL--3.0--or--later-blue?style=flat-square" />
+    <img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue?style=flat-square" />
   </a>
   <a href="https://go.epicenter.so/discord" target="_blank">
     <img alt="Discord" src="https://img.shields.io/badge/Discord-Join%20us-5865F2?style=flat-square&logo=discord&logoColor=white" />
@@ -187,7 +184,7 @@ Contributors coordinate in [Discord](https://go.epicenter.so/discord).
 ## License
 
 Epicenter is free and open source under the
-[AGPL](licenses/LICENSE-AGPL-3.0). Feel free to use it, change it, and run it
+[AGPL](LICENSE). Feel free to use it, change it, and run it
 for yourself however you like. Our only ask is that if you share it with
 others, whether you give it away, sell it, or run a changed version as a
 service for them, you must share your source under the same license, so your improvements can come
@@ -196,6 +193,8 @@ back to the community.
 If you or your team want a hand setting it up or building your apps, I plan to
 offer paid support. I started Epicenter as a hobbyist building software for
 myself, and support is how I plan to keep it free for everyone doing the same.
+
+Copyright 2023-2026 Braden Wong.
 
 ---
 

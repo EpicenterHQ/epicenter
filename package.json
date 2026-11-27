@@ -15,7 +15,7 @@
 		"url": "https://github.com/EpicenterHQ/epicenter.git"
 	},
 	"homepage": "https://epicenter.so",
-	"license": "SEE LICENSE IN LICENSE",
+	"license": "AGPL-3.0-or-later",
 	"author": "",
 	"workspaces": {
 		"packages": [
