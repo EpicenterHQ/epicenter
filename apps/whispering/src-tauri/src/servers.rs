@@ -127,7 +127,7 @@ pub async fn complete<R: Runtime>(
 
 /// Whether `id` names a file in `recordings/` and nothing outside it:
 /// letters, digits, `-` and `_` only.
-fn is_bare_name(id: &str) -> bool {
+pub(crate) fn is_bare_name(id: &str) -> bool {
     !id.is_empty()
         && id
             .bytes()

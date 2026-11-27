@@ -13,7 +13,7 @@ import { resultMutations, resultQueries } from 'wellcrafted/query';
 import { recordings } from './data/recordings';
 import { settings } from './data/settings';
 import { textFiles } from './data/text-files';
-import { recorder, servers } from './platform/index';
+import { local, recorder, servers } from './platform/index';
 
 export const queryClient = new QueryClient({
 	defaultOptions: {
@@ -67,6 +67,22 @@ export const keysMutations = resultMutations(['keys'], {
 	/** Keep `key` for the server at `baseUrl`; an empty key forgets the one kept. */
 	set: ({ baseUrl, key }: { baseUrl: string; key: string }) =>
 		servers.setKey(baseUrl, key),
+});
+
+/** The models that transcribe on this computer, and whether each is downloaded. */
+export const modelsQueries = resultQueries(['models'], {
+	list: local.models,
+});
+
+export const modelsMutations = resultMutations(['models'], {
+	download: ({
+		id,
+		onProgress,
+	}: {
+		id: string;
+		onProgress: (share: number) => void;
+	}) => local.download(id, onProgress),
+	remove: ({ id }: { id: string }) => local.remove(id),
 });
 
 /** The microphones connected now. Asked again each time a screen opens it. */

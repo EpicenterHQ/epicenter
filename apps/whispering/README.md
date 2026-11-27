@@ -1,12 +1,14 @@
 # Whispering
 
 Press a shortcut, speak, and get the text on your clipboard. Whispering
-records on your device, sends the audio to a transcription server you
-choose, can have a chat model clean up the text, and keeps every recording
-and transcript as files you can open.
+records on your device, transcribes there too with a model it downloads
+once, or with a transcription server you choose, can have a chat model
+clean up the text, and keeps every recording and transcript as files you
+can open.
 
 It runs in two places from the same page: a desktop app (Tauri) and a
-browser tab.
+browser tab. Only the desktop app transcribes on the device; a browser tab
+needs a server.
 
 ```bash
 bun dev:whispering           # the page in a browser, on port 1420
@@ -35,6 +37,9 @@ recordings/<id>.webm    the audio (.m4a when the recorder made MP4)
 A recording's id starts with the time it began, so a list of files sorts by
 time and a recording whose note never got written still has a time.
 
+A model's file is not here either: it is in the Hugging Face cache
+(`~/.cache/huggingface/hub`), which other apps on the computer share.
+
 No server's API key is in these files. The desktop app
 keeps it in the macOS Keychain; a browser keeps it in `localStorage`.
 
@@ -57,7 +62,8 @@ src/
   lib/
     dictation-view.ts        what a screen may know about dictation (`DictationView`)
     dictation.svelte.ts      live state, and record → save → transcribe → clean up → copy
-    queries.ts               the cache: TanStack Query over data/, keys, and microphones
+    queries.ts               the cache: TanStack Query over data/, keys, models, and microphones
+    model-downloads.svelte.ts  how far each model download is, for any screen
     data/
       recordings.ts          the rules for recordings/ (no cache)
       settings.ts            the rules for settings.json (no cache)
@@ -67,6 +73,7 @@ src/
       files/                 files.ts (contract), tauri.ts, opfs.ts
       recorder/              recorder.ts (contract), native.ts, browser.ts
       servers/               servers.ts (contract), native.ts, browser.ts
+      local/                 local.ts (contract), native.ts, browser.ts: models on this computer
       pill/                  pill.ts (contract), native.ts, browser.ts: the two windows talking
     cleanup.ts               pure rules: the dictionary, when cleanup runs, what it is told
     feed.ts                  pure rules: a recording's time, day, and search match
@@ -75,6 +82,7 @@ src-tauri/src/
   files.rs                   reads many files in one call
   keys.rs                    the Keychain
   servers.rs                 transcription and cleanup requests, with the key
+  local.rs                   transcribes a recording with a model on this computer
   pill.rs                    the pill's window: a panel over every app that never takes focus
   main.rs                    commands, plugins, and the global shortcut
 ```
@@ -126,6 +134,15 @@ The layers answer different questions:
   capability that differs has a contract type and two implementations, and
   nothing else imports Tauri. Refused: an `isTauri()` check inside each
   module, which spreads the question of where the page runs across the code.
+- **The desktop app transcribes on this computer unless a server is
+  chosen.** A fresh install needs one model download and no account, key or
+  network after it. The engine is transcribe.cpp, in the transcription
+  plugin, which also lists, downloads and removes models; `local.rs` reads
+  the recording and runs the model, as `servers.rs` reads it and sends it.
+  Parakeet, the default, takes no dictionary words as hints; the
+  dictionary's replacements still apply to its text. Refused: a server as
+  the only way, which left a new install doing nothing until an address
+  and a key were typed in.
 - **The browser recorder turns voice processing off and writes on Stop.**
   Echo cancellation and noise suppression change the audio the server hears.
   Refused: writing chunks while recording, which would leave a half-written

@@ -8,13 +8,15 @@
 //! Requests to the person's servers run here too (`servers.rs`), with each
 //! server's API key read from the Keychain (`keys.rs`), and one fixed global shortcut asks the
 //! page to start or stop a recording. A second, small window floats the
-//! pill over every app while a take is under way (`pill.rs`).
+//! pill over every app while a take is under way (`pill.rs`). A recording
+//! can also be transcribed on this computer (`local.rs`).
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod files;
 mod keys;
+mod local;
 mod pill;
 mod servers;
 
@@ -35,13 +37,15 @@ fn main() {
     // The pill's window is a panel that never activates the app.
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_nspanel::init());
-    builder
+    let app = builder
         // First, so a second launch stops before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| focus(app)))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_epicenter_recorder::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_epicenter_transcription::init())
         .setup(|app| {
             start(app.handle())?;
             pill::open(app.handle())
@@ -54,10 +58,14 @@ fn main() {
             keys::key_exists,
             servers::transcribe,
             servers::complete,
+            local::transcribe_local,
             pill::pill_show
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("Whispering could not start");
+    // On a Mac this exits without running C++ static finalizers, which can
+    // race a model still loaded on the GPU (the transcription plugin's README).
+    tauri_plugin_epicenter_transcription::run(app, |_, _| {});
 }
 
 /// Make the data directory, allow it in the file system scope, then open

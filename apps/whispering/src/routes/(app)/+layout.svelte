@@ -17,9 +17,9 @@
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { transcriber } from '#lib/data/settings.ts';
 	import { type Need, setDictation } from '#lib/dictation-view.ts';
-	import { onShortcut, pill } from '#lib/platform/index.ts';
+	import { local, onShortcut, pill } from '#lib/platform/index.ts';
 	import { runQuery } from 'wellcrafted/query';
-	import { queryClient, settingsQueries } from '#lib/queries.ts';
+	import { modelsQueries, queryClient, settingsQueries } from '#lib/queries.ts';
 	import AppSidebar from './AppSidebar.svelte';
 	import RecordingBar from './RecordingBar.svelte';
 
@@ -35,15 +35,39 @@
 	});
 
 	const settings = createQuery(() => settingsQueries.read(), () => queryClient);
-	const needs = $derived<Need[]>([
-		{
-			id: 'server',
-			met: !!settings.data && transcriber(settings.data)?.kind === 'server',
-			problem: 'No transcription server is set. Recordings are kept, without text.',
-			fix: { label: 'Set up transcription', href: '/settings/transcription' },
-		},
-	]);
-	setDictation({ ...dictation, needs: () => needs.filter((need) => !need.met) });
+	const models = createQuery(() => modelsQueries.list(), () => queryClient);
+	const SET_UP = { label: 'Set up transcription', href: '/settings/transcription' };
+	/**
+	 * What transcription still needs: a server filled in, or the chosen
+	 * model downloaded. Nothing until the settings and the models are read,
+	 * so no screen flashes a need that is met.
+	 */
+	const needs = $derived.by<Need[]>(() => {
+		if (!settings.data) return [];
+		const chosen = transcriber(settings.data);
+		if (chosen?.kind === 'server') return [];
+		if (chosen?.kind === 'local' && local.available) {
+			if (!models.data || models.data.some((model) => model.id === chosen.model && model.downloaded))
+				return [];
+			return [
+				{
+					id: 'model',
+					met: false,
+					problem: 'The transcription model is not downloaded. Recordings are kept, without text.',
+					fix: SET_UP,
+				},
+			];
+		}
+		return [
+			{
+				id: 'server',
+				met: false,
+				problem: 'No transcription server is set. Recordings are kept, without text.',
+				fix: SET_UP,
+			},
+		];
+	});
+	setDictation({ ...dictation, needs: () => needs });
 
 	/**
 	 * A narrow window keeps the sidebar folded to its icons, so the page has

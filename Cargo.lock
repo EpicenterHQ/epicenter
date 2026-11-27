@@ -6548,10 +6548,13 @@ dependencies = [
  "tauri-nspanel",
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-epicenter-recorder",
+ "tauri-plugin-epicenter-transcription",
  "tauri-plugin-fs",
  "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tempfile",
+ "transcribe-cpp",
 ]
 
 [[package]]

@@ -10,7 +10,7 @@
 	import { transcriber } from '#lib/data/settings.ts';
 	import { getDictation } from '#lib/dictation-view.ts';
 	import { formatDuration } from '#lib/feed.ts';
-	import { recordingsQueries, settingsQueries } from '#lib/queries.ts';
+	import { modelsQueries, recordingsQueries, settingsQueries } from '#lib/queries.ts';
 	import AddSampleButton from './AddSampleButton.svelte';
 	import NeedsLine from './NeedsLine.svelte';
 	import RecorderPanel from './RecorderPanel.svelte';
@@ -23,7 +23,14 @@
 	const recent = $derived((list.data ?? []).slice(-3).reverse());
 	const latest = $derived(recent[0]);
 	const chosen = $derived(settings.data && transcriber(settings.data));
-	const server = $derived(chosen?.kind === 'server' ? chosen : undefined);
+	const models = createQuery(() => modelsQueries.list());
+	/** What transcribes, as the line under the recorder names it. */
+	const transcribedBy = $derived.by(() => {
+		if (chosen?.kind === 'server') return `${chosen.model} at ${new URL(chosen.baseUrl).host}`;
+		if (chosen?.kind !== 'local') return undefined;
+		const model = models.data?.find((model) => model.id === chosen.model);
+		return model ? `${model.name} on this computer` : undefined;
+	});
 	const unmet = $derived(dictation.needs().length > 0);
 </script>
 
@@ -34,9 +41,9 @@
 
 	{#if unmet}
 		<NeedsLine />
-	{:else if server}
+	{:else if transcribedBy}
 		<p class="text-center text-xs text-muted-foreground">
-			{server.model} at {new URL(server.baseUrl).host} · Copies to the clipboard ·
+			{transcribedBy} · Copies to the clipboard ·
 			<a class="underline underline-offset-2 hover:text-foreground" href="/settings/transcription">Change</a>
 		</p>
 	{/if}

@@ -26,7 +26,7 @@ import {
 import { cleanupServer, DEFAULTS, transcriber } from './data/settings';
 import { CLEANUP_PROMPT, DICTIONARY } from './data/text-files';
 import type { Fix, HandsFree, Outcome, Take, Trigger } from './dictation-view';
-import { copyText, recorder, servers } from './platform';
+import { copyText, local, recorder, servers } from './platform';
 import { type EndedReason, HEARD } from './platform/recorder/recorder';
 import {
 	queryClient,
@@ -144,8 +144,8 @@ function createDictation() {
 	}
 
 	/**
-	 * Send the recording `id` to the server, clean up its transcript, save it
-	 * and copy it. With no server set, say the recording is kept and where
+	 * Transcribe the recording `id`, on this computer or with the server,
+	 * clean up its transcript, save it and copy it. With neither set up, say the recording is kept and where
 	 * to set one.
 	 *
 	 * The order is fixed: the dictionary's words go as hints, its
@@ -157,8 +157,7 @@ function createDictation() {
 	async function transcribe(id: string) {
 		const settings = await currentSettings();
 		const chosen = transcriber(settings);
-		const server = chosen?.kind === 'server' ? chosen : undefined;
-		if (!server) {
+		if (!chosen) {
 			outcome = {
 				kind: 'failed',
 				id,
@@ -184,24 +183,32 @@ function createDictation() {
 				(await runQuery(queryClient, textFilesQueries.read(DICTIONARY))).data ??
 					'',
 			);
-			const { data: heard, error } = await servers.transcribe(
-				id,
-				server,
-				hintPrompt(words.hints),
-			);
+			const prompt = hintPrompt(words.hints);
+			const { data: heard, error } =
+				chosen.kind === 'local'
+					? await local.transcribe(id, chosen.model, prompt)
+					: await servers.transcribe(id, chosen, prompt);
 			if (gone()) return;
 			if (error) {
+				/** What Settings can fix, and what the pill calls it. */
+				const needs =
+					error.name === 'Unauthorized'
+						? 'Needs a key'
+						: error.name === 'ModelMissing'
+							? 'Needs a model'
+							: error.name === 'Unavailable'
+								? 'Needs a server'
+								: undefined;
 				outcome = {
 					kind: 'failed',
 					id,
-					label:
-						error.name === 'Unauthorized' ? 'Needs a key' : 'Not transcribed',
+					label: needs ?? 'Not transcribed',
 					why: error.message,
-					fix: error.name === 'Unauthorized' ? SERVER_SETTINGS : undefined,
+					fix: needs ? SERVER_SETTINGS : undefined,
 				};
 				toast.error('Could not transcribe', {
 					description: error.message,
-					action: error.name === 'Unauthorized' ? openSettings : undefined,
+					action: needs ? openSettings : undefined,
 				});
 				return;
 			}

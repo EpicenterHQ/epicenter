@@ -77,7 +77,7 @@ export type Fix = { label: string; href: string };
  * unmet ones and the sidebar counts them.
  */
 export type Need = {
-	id: 'microphone' | 'server' | 'accessibility' | 'shortcut';
+	id: 'microphone' | 'server' | 'model' | 'accessibility' | 'shortcut';
 	met: boolean;
 	/** What is wrong and what still works, as the person reads it. */
 	problem: string;
