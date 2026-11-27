@@ -41,9 +41,14 @@ current code and dirty work: several chats share this checkout.
   - The browser version gets neither the command line nor the folder choice.
   - Refused: a background server for an Epicenter to call, a Whispering app
     inside an Epicenter, and recording from the command line.
+  - Grounding: on 2026-11-27 the rewrite only calls a transcription server.
+    The transcribe.cpp engine and the native recorder are packages under
+    `apps/whispering-old/packages/`, and the new app already links the
+    recorder from there. Both move out before `apps/whispering-old` is
+    deleted. The rewrite's README keeps files in the app's data directory
+    with no picker, which the folder choice reverses.
   - Open: whether the command line reads the folder's dictionary and default
-    model when no flag names them; whether the rewrite already has an
-    on-device engine; whether a data key can sit at
+    model when no flag names them; whether a data key can sit at
     `data/whispering/recordings`.
 
 ### Dictation into other apps
