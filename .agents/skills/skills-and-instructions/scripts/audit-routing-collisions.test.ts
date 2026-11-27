@@ -68,9 +68,7 @@ test('--explain annotates without changing the line prefix or exit code', () => 
 	const explained = run('--explain', 'asymmetric wins');
 
 	expect(explained.code).toBe(plain.code);
-	expect(explained.out).toBe(
-		'asymmetric wins -> rethink/SKILL.md [claims]\n',
-	);
+	expect(explained.out).toBe('asymmetric wins -> rethink/SKILL.md [claims]\n');
 });
 
 test('a single claimant with no collision exits 0', () => {
