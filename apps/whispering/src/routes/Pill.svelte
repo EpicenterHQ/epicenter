@@ -10,14 +10,19 @@
 	a moment, because the text is its own confirmation; a fallback or a
 	failure stays until clicked or the next take, so it is not missed.
 	Clicking the pill opens Whispering, at the recording when there is one.
+
+	It is dark glass in either theme, because it floats over whatever app is
+	in front and must read on all of them. Stop is always the rightmost
+	button, so the hand learns one place; Cancel sits left of it, grey where
+	Stop is red. Both are plain round buttons with no tooltip, which the
+	pill's small window could not hold.
 -->
 <script lang="ts">
-	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { cn } from '@epicenter/ui/utils';
-	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
-	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
+	import CheckIcon from '@lucide/svelte/icons/check';
 	import SquareIcon from '@lucide/svelte/icons/square';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { getDictation } from '#lib/dictation-view.ts';
 	import Elapsed from './Elapsed.svelte';
@@ -25,6 +30,9 @@
 
 	/** How long a clean delivery stays before the pill steps aside. */
 	const RETIRE_MS = 900;
+
+	const BUTTON =
+		'flex size-6 shrink-0 items-center justify-center rounded-full transition hover:scale-110 active:scale-95 motion-reduce:transition-none';
 
 	const dictation = getDictation();
 	const take = $derived(dictation.take());
@@ -47,6 +55,7 @@
 	);
 	/** The pill is as wide as its words, except while there is a level to show. */
 	const wide = $derived(take.kind === 'recording' || (listening && take.kind === 'idle'));
+	const failed = $derived(take.kind === 'idle' && !listening && outcome.kind === 'failed');
 
 	function open() {
 		const id = take.kind === 'idle' && outcome.kind !== 'none' ? outcome.id : undefined;
@@ -58,8 +67,9 @@
 {#if !hidden}
 	<div
 		class={cn(
-			'flex h-10 max-w-60 items-center gap-1 rounded-full border bg-popover pr-1 pl-3 text-sm text-popover-foreground shadow-lg',
-			wide ? 'w-60' : 'w-fit pr-3',
+			'flex h-10 max-w-60 items-center gap-1 rounded-full border pr-2 pl-3 text-sm font-medium text-white/90 shadow-lg backdrop-blur-md select-none',
+			failed ? 'border-red-500/50 bg-red-950/90' : 'border-white/10 bg-neutral-950/85',
+			wide ? 'w-60' : 'w-fit pr-3.5',
 		)}
 		role="status"
 	>
@@ -70,63 +80,70 @@
 			onclick={open}
 		>
 			{#if take.kind === 'recording'}
-				<span class="size-2.5 shrink-0 rounded-full bg-destructive" aria-hidden="true"></span>
-				<Elapsed since={take.startedAt} class="shrink-0 font-medium tabular-nums" />
+				<span class="size-2.5 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
+				<Elapsed since={take.startedAt} class="shrink-0 tabular-nums" />
 				{#if dictation.silent()}
-					<span class="min-w-0 flex-1 truncate text-destructive">No sound</span>
+					<span class="min-w-0 flex-1 truncate text-red-300">No sound</span>
 				{:else}
-					<LevelMeter level={dictation.level()} class="h-4 flex-1 text-destructive" />
+					<LevelMeter level={dictation.level()} class="h-4 flex-1 text-white/80" />
 				{/if}
 				{#if take.trigger === 'hold'}
-					<span class="shrink-0 text-xs text-muted-foreground">Release to stop</span>
+					<span class="shrink-0 text-xs text-white/60">Release to stop</span>
 				{/if}
 			{:else if take.kind !== 'idle'}
-				<Spinner class="text-muted-foreground" />
-				<span class="text-muted-foreground">{take.kind === 'starting' ? 'Starting' : 'Saving'}</span>
+				<Spinner class="text-white/70" />
+				<span>{take.kind === 'starting' ? 'Starting' : 'Saving'}</span>
 			{:else if listening}
 				{#if outcome.kind === 'transcribing'}
-					<Spinner class="size-3 shrink-0 text-muted-foreground" />
+					<Spinner class="size-3 shrink-0 text-white/60" />
 				{:else}
-					<span class="size-2.5 shrink-0 rounded-full border-2 border-muted-foreground" aria-hidden="true"></span>
+					<span class="size-2.5 shrink-0 rounded-full border-2 border-white/50" aria-hidden="true"></span>
 				{/if}
-				<span class="shrink-0 text-muted-foreground">Listening</span>
-				<LevelMeter level={dictation.level()} class="h-4 flex-1 text-muted-foreground" />
+				<span class="shrink-0 text-white/70">Listening</span>
+				<LevelMeter level={dictation.level()} class="h-4 flex-1 text-white/50" />
 			{:else if outcome.kind === 'transcribing'}
-				<Spinner class="text-muted-foreground" />
-				<span class="text-muted-foreground">
-					{dictation.isCleaning(outcome.id) ? 'Cleaning up' : 'Transcribing'}
-				</span>
+				<Spinner class="text-white/70" />
+				<span>{dictation.isCleaning(outcome.id) ? 'Cleaning up' : 'Transcribing'}</span>
 			{:else if outcome.kind === 'delivered'}
-				<CircleCheckIcon class="size-4 shrink-0 text-muted-foreground" />
+				<CheckIcon class="size-4 shrink-0 text-green-400" />
 				<span>{outcome.to === 'cursor' ? 'Pasted' : 'Copied'}</span>
 			{:else if outcome.kind === 'copiedInstead'}
-				<CircleAlertIcon class="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+				<CheckIcon class="size-4 shrink-0 text-amber-300" />
 				<span class="truncate">Copied; press ⌘V to paste</span>
 			{:else if outcome.kind === 'failed'}
-				<CircleAlertIcon class="size-4 shrink-0 text-destructive" />
+				<TriangleAlertIcon class="size-4 shrink-0 text-red-300" />
 				<span class="truncate">{outcome.label}</span>
 			{/if}
 		</button>
 
 		{#if take.kind === 'recording' && take.trigger !== 'hold'}
 			{#if take.trigger !== 'voice'}
-				<IconButton label="Cancel" size="sm" variant="ghost" class="size-7 rounded-full" onclick={() => dictation.cancel()}>
-					<XIcon />
-				</IconButton>
+				<button
+					type="button"
+					class={cn(BUTTON, 'bg-white/10 hover:bg-white/20')}
+					aria-label="Cancel"
+					onclick={() => dictation.cancel()}
+				>
+					<XIcon class="size-4" />
+				</button>
 			{/if}
-			<IconButton
-				label={take.trigger === 'voice' ? 'Stop listening' : 'Stop'}
-				size="sm"
-				variant="ghost"
-				class="size-7 rounded-full"
+			<button
+				type="button"
+				class={cn(BUTTON, 'bg-red-500/70 text-white hover:bg-red-500')}
+				aria-label={take.trigger === 'voice' ? 'Stop listening' : 'Stop'}
 				onclick={() => (take.trigger === 'voice' ? dictation.setHandsFree(false) : dictation.toggle())}
 			>
-				<SquareIcon class="fill-current" />
-			</IconButton>
+				<SquareIcon class="size-3 fill-current" />
+			</button>
 		{:else if listening && take.kind === 'idle'}
-			<IconButton label="Stop listening" size="sm" variant="ghost" class="size-7 rounded-full" onclick={() => dictation.setHandsFree(false)}>
-				<SquareIcon class="fill-current" />
-			</IconButton>
+			<button
+				type="button"
+				class={cn(BUTTON, 'bg-red-500/70 text-white hover:bg-red-500')}
+				aria-label="Stop listening"
+				onclick={() => dictation.setHandsFree(false)}
+			>
+				<SquareIcon class="size-3 fill-current" />
+			</button>
 		{/if}
 	</div>
 {/if}

@@ -19,6 +19,7 @@
 	import NeedsLine from '../NeedsLine.svelte';
 	import Pill from '../Pill.svelte';
 	import RecorderPanel from '../RecorderPanel.svelte';
+	import WithView from './WithView.svelte';
 
 	type Scene = {
 		label: string;
@@ -73,19 +74,24 @@
 		return () => clearInterval(timer);
 	});
 
-	const view: DictationView = {
-		take: () => scene.take ?? { kind: 'idle' },
+	/**
+	 * A made-up view showing `shown()`. A delivery lands at `landedAt()`, so
+	 * the pill's moment can be watched; the gallery puts it an hour ahead,
+	 * so it stays.
+	 */
+	const viewOf = (shown: () => Scene, landedAt: () => number): DictationView => ({
+		take: () => shown().take ?? { kind: 'idle' },
 		keys: () => ({ toggle: '⌘⇧;', hold: '⌥Space' }),
 		level: () => level,
-		silent: () => scene.silent ?? false,
-		handsFree: () => scene.handsFree ?? { kind: 'off' },
+		silent: () => shown().silent ?? false,
+		handsFree: () => shown().handsFree ?? { kind: 'off' },
 		outcome: () => {
-			const outcome = scene.outcome ?? { kind: 'none' };
-			return outcome.kind === 'delivered' ? { ...outcome, at: pickedAt } : outcome;
+			const outcome = shown().outcome ?? { kind: 'none' };
+			return outcome.kind === 'delivered' ? { ...outcome, at: landedAt() } : outcome;
 		},
-		needs: () => scene.needs ?? [],
+		needs: () => shown().needs ?? [],
 		isTranscribing: () => false,
-		isCleaning: () => scene.cleaning ?? false,
+		isCleaning: () => shown().cleaning ?? false,
 		toggle: () => {},
 		cancel: () => {},
 		dismiss: () => (scene = READY),
@@ -93,8 +99,9 @@
 		setHandsFree: () => {},
 		transcribe: () => {},
 		forget: () => {},
-	};
-	setDictation(view);
+	});
+	setDictation(viewOf(() => scene, () => pickedAt));
+	const HOUR = 3_600_000;
 </script>
 
 <svelte:head><title>Preview · Whispering</title></svelte:head>
@@ -129,4 +136,16 @@
 			><Pill /></div>
 		</section>
 	</div>
+
+	<section class="mx-auto flex w-full max-w-4xl flex-col gap-3 p-6" aria-label="Every pill">
+		<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Every pill</h2>
+		<div class="grid gap-x-8 gap-y-4 rounded-lg bg-gradient-to-br from-sky-200 via-neutral-300 to-neutral-500 p-6 sm:grid-cols-2">
+			{#each SCENES.filter((s) => s.take || s.outcome || s.handsFree) as option (option.label)}
+				<div class="flex flex-col gap-1.5">
+					<span class="text-xs text-neutral-800">{option.label}</span>
+					<WithView view={viewOf(() => option, () => Date.now() + HOUR)}><Pill /></WithView>
+				</div>
+			{/each}
+		</div>
+	</section>
 </main>
