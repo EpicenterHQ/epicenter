@@ -1,6 +1,6 @@
 <!--
-	Home: the recorder, anything dictation still needs, and what you said
-	last, to read and copy again, with the two takes before it. Finding an
+	Home: the recorder, or the first-run panel while the chosen model is
+	not downloaded; anything dictation still needs; and what you said last, to read and copy again, with the two takes before it. Finding an
 	older one is Recordings' job.
 -->
 <script lang="ts">
@@ -10,8 +10,10 @@
 	import { transcriber } from '#lib/data/settings.ts';
 	import { getDictation } from '#lib/dictation-view.ts';
 	import { formatDuration } from '#lib/feed.ts';
+	import { modelDownloads } from '#lib/model-downloads.svelte.ts';
 	import { modelsQueries, recordingsQueries, settingsQueries } from '#lib/queries.ts';
 	import AddSampleButton from './AddSampleButton.svelte';
+	import FirstRun from './FirstRun.svelte';
 	import NeedsLine from './NeedsLine.svelte';
 	import RecorderPanel from './RecorderPanel.svelte';
 	import RecordingRow from './RecordingRow.svelte';
@@ -32,20 +34,49 @@
 		return model ? `${model.name} on this computer` : undefined;
 	});
 	const unmet = $derived(dictation.needs().length > 0);
+
+	/**
+	 * The model to download first: the chosen one, while it is missing and
+	 * nothing records. A take started by the shortcut still shows the recorder.
+	 */
+	const missing = $derived(
+		chosen?.kind === 'local' &&
+			dictation.take().kind === 'idle' &&
+			dictation.needs().some((need) => need.id === 'model')
+			? models.data?.find((model) => model.id === chosen.model)
+			: undefined,
+	);
+	let downloadError = $state<string>();
+
+	async function download(id: string) {
+		downloadError = undefined;
+		const { error } = await modelDownloads.start(id);
+		downloadError = error?.message;
+	}
 </script>
 
 <svelte:head><title>Whispering</title></svelte:head>
 
 <main class="mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
-	<RecorderPanel />
+	{#if missing}
+		<FirstRun
+			name={missing.name}
+			sizeBytes={missing.sizeBytes}
+			share={modelDownloads.share(missing.id)}
+			error={downloadError}
+			ondownload={() => download(missing.id)}
+		/>
+	{:else}
+		<RecorderPanel />
 
-	{#if unmet}
-		<NeedsLine />
-	{:else if transcribedBy}
-		<p class="text-center text-xs text-muted-foreground">
-			{transcribedBy} · Copies to the clipboard ·
-			<a class="underline underline-offset-2 hover:text-foreground" href="/settings/transcription">Change</a>
-		</p>
+		{#if unmet}
+			<NeedsLine />
+		{:else if transcribedBy}
+			<p class="text-center text-xs text-muted-foreground">
+				{transcribedBy} · Copies to the clipboard ·
+				<a class="underline underline-offset-2 hover:text-foreground" href="/settings/transcription">Change</a>
+			</p>
+		{/if}
 	{/if}
 
 	{#if latest}

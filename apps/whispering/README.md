@@ -55,7 +55,7 @@ src/
     pill/                    the pill's own window; shows what the main window sends
     (app)/                   the main window (a route group: no part of any address)
       +layout.svelte         the sidebar frame; hands the screens the real dictation
-      +page.svelte           Home: the recorder, what dictation needs, the latest take
+      +page.svelte           Home: the recorder or the first run, what dictation needs, the latest take
       recordings/            the list and the reading pane, chosen by `?id=`
       settings/<section>/    one page per settings section
       preview/               development only: the screens fed a made-up dictation
@@ -213,6 +213,12 @@ again so the model cannot undo them.
 - **Home says what is wrong once, in words.** A missing setup is one line
   under the recorder, and the sidebar only marks Settings. Refused: a card,
   a status count and a summary line saying the same thing three times.
+- **The first run is Home while the chosen model is not downloaded.** One
+  button downloads it, with its progress, and the recorder returns when
+  the file is there. Home works this out from the settings and the models
+  on the computer, so removing the model brings the panel back. Refused: a
+  wizard of steps, and a "set up" flag in `settings.json`, which can
+  disagree with what is on disk.
 - **The pill is its own window, and the main window tells it what to show.**
   Dictation runs once, in the main window, which sends the pill its state
   about twenty times a second; the pill sends back Stop, Cancel and clicks.

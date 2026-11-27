@@ -20,6 +20,7 @@
 	import { setDictation } from '#lib/dictation-view.ts';
 	import { goto } from '$app/navigation';
 	import { pill } from '#lib/platform/index.ts';
+	import FirstRun from '../FirstRun.svelte';
 	import NeedsLine from '../NeedsLine.svelte';
 	import Pill from '../../Pill.svelte';
 	import RecorderPanel from '../RecorderPanel.svelte';
@@ -175,6 +176,19 @@
 			><Pill /></div>
 		</section>
 	</div>
+
+	<section class="mx-auto flex w-full max-w-4xl flex-col gap-3 p-6" aria-label="First run">
+		<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			First run: the model is not downloaded
+		</h2>
+		<div class="grid gap-4 lg:grid-cols-3">
+			{#each [{}, { share: 0.42 }, { error: 'Failed to download model: the connection was reset.' }] as state, i (i)}
+				<div class="rounded-lg border px-4">
+					<FirstRun name="Parakeet TDT 0.6B v3" sizeBytes={485_000_000} {...state} ondownload={() => {}} />
+				</div>
+			{/each}
+		</div>
+	</section>
 
 	<section class="mx-auto flex w-full max-w-4xl flex-col gap-3 p-6" aria-label="Every pill">
 		<h2 class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Every pill</h2>
