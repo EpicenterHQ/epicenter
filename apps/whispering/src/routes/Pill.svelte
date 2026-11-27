@@ -20,9 +20,7 @@
 <script lang="ts">
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { cn } from '@epicenter/ui/utils';
-	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
 	import CheckIcon from '@lucide/svelte/icons/check';
-	import MicIcon from '@lucide/svelte/icons/mic';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -91,12 +89,7 @@
 			onclick={open}
 		>
 			{#if take.kind === 'recording'}
-				{#if take.trigger === 'voice'}
-					<AudioLinesIcon class="size-4 shrink-0 text-white/80" />
-				{:else}
-					<MicIcon class="size-4 shrink-0 text-white/80" />
-				{/if}
-				<Elapsed since={take.startedAt} class="shrink-0 text-white/80 tabular-nums" />
+				<Elapsed since={take.startedAt} class="shrink-0 pl-1 tabular-nums" />
 				{#if dictation.silent()}
 					<span class="min-w-0 flex-1 truncate text-red-300">No sound</span>
 				{:else}
