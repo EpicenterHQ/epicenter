@@ -143,7 +143,7 @@ function streamCall(
 					answering((update) => send({ update: update ?? null }), gone.signal),
 				)
 				.catch((cause: unknown) => {
-					serveLog.error(ServeError.Unanswered({ cause }).error);
+					serveLog.error(ServeError.Unanswered({ cause }));
 					return ActionError.Threw({ message: extractErrorMessage(cause) });
 				})
 				.then((answer) => {
@@ -478,7 +478,7 @@ export async function serveHome(home: Home): Promise<Answer> {
 				reusePort: false,
 				fetch: createHandler(home, loading.promise, () => schedules?.list()),
 				error: (error) => {
-					serveLog.error(ServeError.Unanswered({ cause: error }).error);
+					serveLog.error(ServeError.Unanswered({ cause: error }));
 					return new Response('serve could not answer', { status: 500 });
 				},
 			}),
@@ -496,10 +496,10 @@ export async function serveHome(home: Home): Promise<Answer> {
 	}
 	// One app's stray timer or late rejection must not stop every app.
 	process.on('unhandledRejection', (cause) =>
-		serveLog.error(ServeError.Unhandled({ cause }).error),
+		serveLog.error(ServeError.Unhandled({ cause })),
 	);
 	process.on('uncaughtException', (cause) =>
-		serveLog.error(ServeError.Uncaught({ cause }).error),
+		serveLog.error(ServeError.Uncaught({ cause })),
 	);
 	const stopping = Promise.withResolvers<void>();
 	const stop = () => {
@@ -525,7 +525,7 @@ export async function serveHome(home: Home): Promise<Answer> {
 		await server.stop(true);
 		return process.exit(0);
 	} catch (cause) {
-		serveLog.error(ServeError.Uncaught({ cause }).error);
+		serveLog.error(ServeError.Uncaught({ cause }));
 		return process.exit(1);
 	} finally {
 		lock.close();

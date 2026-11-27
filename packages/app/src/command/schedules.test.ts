@@ -264,7 +264,7 @@ test('a late wake skips the expired minute, and next 8am follows the local DST c
 	expect(existsSync(home.invocations)).toBe(false);
 });
 
-test('a scheduled action error uses the usual runner log and serve stays available', async () => {
+test('a scheduled action error is logged with its message and serve stays available', async () => {
 	const home = await fixture();
 	const url = await home.usePort();
 	await home.setTime('07:59:59');
@@ -277,5 +277,11 @@ test('a scheduled action error uses the usual runner log and serve stays availab
 	);
 	service.child.kill('SIGTERM');
 	expect(await service.child.exited).toBe(0);
-	expect(await service.stderr).toContain('"outcome":"error","error":"Threw"');
+	const stderr = await service.stderr;
+	expect(stderr).toContain('"action":"daily","durationMs":');
+	expect(stderr).toContain('"error":"Threw"');
+	expect(stderr).toContain('"source":"epicenter/schedules"');
+	expect(stderr).toContain(
+		'Scheduled flights daily failed with Threw: fixture action failure',
+	);
 });
