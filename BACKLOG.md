@@ -25,6 +25,33 @@ current code and dirty work: several chats share this checkout.
   a recording shows where its audio and transcript live.
 - Then: a command-line transcribe mode, so an app in an Epicenter can use
   Whispering as its transcription engine, as `apps/codex` uses Handy today.
+  The shape, settled on 2026-11-27:
+  - The installed desktop program, run with
+    `--transcribe-file <wav> --model <name> --json`, prints `{ "text": ... }`
+    and exits. It answers the call `apps/codex` makes to Handy, so switching
+    is one setting. It records nothing, saves nothing, and opens no window.
+  - Transcription is one Rust interface, audio in and text out, with two
+    implementations: the bundled transcribe.cpp engine, and a request to an
+    OpenAI-compatible server. Settings choose between them. The app calls
+    the interface in memory and keeps an on-device model loaded; the command
+    line calls it once. Neither calls the other.
+  - A caller names the program by its full path. The installer puts nothing
+    on `PATH`.
+  - The app keeps its files in one folder the person picks. The picker takes
+    any folder and never mentions Epicenter; an Epicenter's own docs say to
+    choose `~/Epicenter/data/whispering`.
+  - The browser version gets neither the command line nor the folder choice.
+  - Refused: a background server for an Epicenter to call, a Whispering app
+    inside an Epicenter, and recording from the command line.
+  - Grounding: on 2026-11-27 the rewrite only calls a transcription server.
+    The transcribe.cpp engine and the native recorder are packages under
+    `apps/whispering-old/packages/`, and the new app already links the
+    recorder from there. Both move out before `apps/whispering-old` is
+    deleted. The rewrite's README keeps files in the app's data directory
+    with no picker, which the folder choice reverses.
+  - Open: whether the command line reads the folder's dictionary and default
+    model when no flag names them; whether a data key can sit at
+    `data/whispering/recordings`.
 
 ### Dictation into other apps
 
