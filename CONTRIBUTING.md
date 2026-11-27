@@ -1,8 +1,7 @@
 # Contributing to Epicenter
 
 Thanks for helping. Whispering (`apps/whispering`) is the best place to start;
-its [README](apps/whispering/README.md) covers the app. [`apps/README.md`](apps/README.md)
-lists the other apps.
+its [README](apps/whispering/README.md) covers the app.
 
 ## Setup
 
@@ -68,8 +67,7 @@ package meant to be published; it is not on npm yet.
 
 Everything under `packages/` and `apps/` is AGPL-3.0-or-later, and
 contributions are accepted under the same license with no CLA. See the
-[licensing strategy](docs/licensing/licensing-strategy.md) and the root
-[LICENSE](LICENSE).
+root [LICENSE](LICENSE).
 
 ## Help
 

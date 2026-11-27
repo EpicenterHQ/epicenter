@@ -2,10 +2,9 @@ Copyright 2023-2026 Braden Wong
 
 Every package under packages/ and apps/ is licensed under
 AGPL-3.0-or-later. Each declares it in its package.json, and most carry a
-copy of the full text in their own LICENSE file. This file is the index.
-
-For the reasoning, see docs/licensing/licensing-strategy.md and
-FINANCIAL_SUSTAINABILITY.md.
+copy of the full text in their own LICENSE file. If a package's own LICENSE
+file or package.json "license" field ever disagrees with this file, the
+package's own files are authoritative.
 
 ================================================================================
 1. GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
@@ -14,70 +13,22 @@ FINANCIAL_SUSTAINABILITY.md.
 Everything Epicenter ships. The full text is in licenses/LICENSE-AGPL-3.0.
 
 You're free to run, modify, and self-host any of it. If you distribute a
-modified version, you share the changes back with the community.
-
-For hosted infrastructure, AGPL section 13 extends
-this to network use: running a modified version as a service counts as
-distribution. For consumer apps that run locally on a user's machine, section
-13 does not trigger, but the underlying distribution clause still applies:
-anyone who forks and distributes a modified binary shares the changes back.
-
-  Packages:
-    packages/ai              @epicenter/ai
-    packages/ui              @epicenter/ui
-
-  Apps:
-    apps/landing                @epicenter/landing
-    apps/whispering             @epicenter/whispering
+modified version, you share the changes back. AGPL section 13 extends this to
+network use: running a modified version for others over a network counts as
+distribution. Contributions are accepted under the same license, with no CLA.
 
 ================================================================================
-2. MIT (historical, no longer a live tier)
+2. MIT (versions published before 2026-08)
 ================================================================================
 
-Until 2026-08, a subset of packages was MIT: an embeddable toolkit tier whose
-dependency closure had to stay MIT. That tier is dissolved. It was maintained
-for an external embedder who never arrived, and it had begun to distort
-placement: code sat in the wrong package to stay on the permissive side of a
-boundary nothing was crossing.
-
-The direction of the change is the recoverable one. AGPL is the restrictive
-default, and carving a package back out to MIT later is a decision that can be
-made once there is a concrete embedder to make it for. The reverse mistake,
-releasing under MIT and changing your mind, cannot be undone for versions
-already published.
-
-Which matters here, because some were: the following versions were published
-to npm under the MIT License and REMAIN MIT for those versions, permanently.
-The text they were released under is preserved at licenses/LICENSE-MIT.
+Until 2026-08, a subset of packages was MIT. That tier is dissolved. The
+following versions were published to npm under the MIT License and REMAIN MIT
+for those versions, permanently. The text they were released under is
+preserved at licenses/LICENSE-MIT.
 
     - @epicenter/field       0.3.0
     - @epicenter/identity    0.3.0
     - @epicenter/sync        0.1.0, 0.3.0
     - @epicenter/ui          0.1.0, 0.3.0
 
-Versions published from this commit forward are AGPL-3.0-or-later.
-
-================================================================================
-3. Proprietary (deferred tier, currently empty)
-================================================================================
-
-No components are currently licensed under proprietary terms, and none are
-planned. Revenue comes from hosting (Epicenter Cloud), not licensing.
-
-This tier is documented as an escape hatch for one specific situation: a
-paying customer requires a specific feature that AGPL self-hosting would
-otherwise give away free. It will not be populated speculatively. The
-empty-tier end-state is the goal.
-
-If this tier is ever populated, modules will live in clearly delineated
-subdirectories with their own LICENSE files declaring "All rights reserved"
-terms, and will be listed here.
-
-See docs/licensing/licensing-strategy.md for the conventions.
-
-================================================================================
-
-If a package's per-package LICENSE file or package.json "license" field ever
-conflicts with this index, the per-package files are authoritative. This index
-is generated from them by reading every package.json, so a disagreement means
-this file is stale and should be regenerated rather than hand-edited.
+Versions published after that are AGPL-3.0-or-later.

@@ -219,7 +219,7 @@ not create a second implementation assignment.
 ### Bring the public pages in line with the Epicenter
 
 - Desired result: Public pages describe Epicenter as where one
-  person's software lives, as `README.md` and `docs/positioning.md` now do, and
+  person's software lives, as `README.md` and `docs/vision.md` now do, and
   no longer promise the retired Folder sync product.
 - Grounding: On 2026-11-17, `apps/landing/src/pages/privacy.astro` and
   `terms.astro` still call Epicenter "local-first software". The blog posts
