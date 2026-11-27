@@ -9,9 +9,9 @@
  * JSON, or `Threw` when it throws, returns what JSON cannot carry, or returns
  * an error named `NotStarted`, `Threw` or `Unreachable`: only Epicenter says
  * whether a call began. Every call ends in one answer, so the route and MCP
- * answer alike. When a run ends, serve logs one record: the app, the action,
- * the outcome and how long it took, never the input or the result, which can
- * hold personal data.
+ * answer alike. When a call ends, serve logs one record: the app, the action,
+ * how long it took, and the error's name and message or `null`. It never
+ * holds the input or the result, which can hold personal data.
  */
 
 import type { Validator } from 'typebox/compile';
@@ -31,7 +31,7 @@ import { isPlainObject } from '../json.ts';
 import { stderrJsonLines } from './output.ts';
 import type { Program } from './program.ts';
 
-/** Where serve writes one record for each run, when it ends. */
+/** Where serve writes one record for each call, when it ends. */
 const runLog = createLogger('epicenter/run', stderrJsonLines);
 
 export async function answerCall(
@@ -40,6 +40,26 @@ export async function answerCall(
 	action: string,
 	input: unknown,
 	options: CallOptions<unknown> = {},
+): Promise<Answer> {
+	const started = performance.now();
+	const answer = await answerOnce(program, app, action, input, options);
+	// The logger catches a sink that throws, so the record cannot change the answer.
+	runLog.info('action call ended', {
+		app,
+		action,
+		durationMs: Math.round(performance.now() - started),
+		error: answer.error?.name ?? null,
+		message: answer.error?.message ?? null,
+	});
+	return answer;
+}
+
+async function answerOnce(
+	program: Program,
+	app: string,
+	action: string,
+	input: unknown,
+	options: CallOptions<unknown>,
 ): Promise<Answer> {
 	if (program.problem)
 		return ActionError.NotStarted({
@@ -71,7 +91,6 @@ export async function answerCall(
 			message: problem,
 			next: `epicenter ${app}`,
 		});
-	const started = performance.now();
 	// A throw while running or while reading what the run returned, such as a
 	// getter on its error, means it ran and broke.
 	const ran = await tryAsync({
@@ -79,15 +98,7 @@ export async function answerCall(
 		catch: (cause) =>
 			ActionError.Threw({ message: extractErrorMessage(cause) }),
 	});
-	const answer = ran.error === null ? ran.data : ran;
-	// The logger catches a sink that throws, so the record cannot change the answer.
-	runLog.info('action run ended', {
-		app,
-		action,
-		durationMs: Math.round(performance.now() - started),
-		error: answer.error?.name ?? null,
-	});
-	return answer;
+	return ran.error === null ? ran.data : ran;
 }
 
 /**
