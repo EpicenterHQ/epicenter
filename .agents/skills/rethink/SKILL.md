@@ -14,8 +14,9 @@ Look for the most tasteful way to recompose the work around that purpose,
 with the freedom to change the question we’ve been answering. Judge the
 result by what it makes possible and what it asks us to give up.
 
-If the purpose or direction is still unsettled, work it out with the user
-through [dialectic](../dialectic/SKILL.md). When the user has settled and
+If the purpose or direction is still unsettled, or a choice would change
+what someone can do, work it out with the user through
+[dialectic](../dialectic/SKILL.md). When the user has settled and
 authorized the outcome, use this reasoning to make the choices it leaves
 open. Investigate further when uncertainty could change the decision.
 A local correction can still be the best result.
