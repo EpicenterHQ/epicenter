@@ -32,10 +32,14 @@ use tauri_plugin_fs::FsExt;
 pub(crate) const WINDOW: &str = "main";
 
 fn main() {
-    // `--transcribe-file` transcribes and exits; no window opens (`cli.rs`).
+    // `--transcribe-file` and `--list-models` answer and exit; no window opens (`cli.rs`).
+    let context = tauri::generate_context!();
     match cli::parse(std::env::args().skip(1)) {
         Ok(None) => {}
-        Ok(Some(request)) => tauri_plugin_epicenter_transcription::exit(cli::run(request)),
+        Ok(Some(request)) => tauri_plugin_epicenter_transcription::exit(cli::run(
+            request,
+            &context.config().identifier,
+        )),
         Err(message) => {
             eprintln!("{message}");
             tauri_plugin_epicenter_transcription::exit(2)
@@ -77,7 +81,7 @@ fn main() {
             paste::paste_ask,
             paste::paste
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Whispering could not start");
     // On a Mac this exits without running C++ static finalizers, which can
     // race a model still loaded on the GPU (the transcription plugin's README).

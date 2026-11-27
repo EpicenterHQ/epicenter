@@ -19,10 +19,13 @@ bun dev:whispering:desktop   # the desktop app
 Run both from the repository root.
 
 The desktop app's program also transcribes a file from a terminal, with no
-window, using a model already downloaded:
+window, using a model already downloaded. Another program runs it this way
+to use Whispering as its transcription engine:
 
 ```bash
-whispering --transcribe-file talk.wav --model parakeet --json
+whispering --transcribe-file talk.m4a --json   # {"text": ..., "model": ...}
+whispering --transcribe-file talk.m4a --model "whisper small"
+whispering --list-models
 ```
 
 ## What it stores
@@ -96,7 +99,7 @@ src/
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
 src-tauri/src/
-  cli.rs                     `--transcribe-file`: a transcript from a terminal, with no window
+  cli.rs                     `--transcribe-file` and `--list-models`: a transcript from a terminal, with no window
   files.rs                   reads many files in one call, sizes a directory, opens the folder
   keys.rs                    the Keychain
   servers.rs                 transcription and cleanup requests, with the key
@@ -232,12 +235,14 @@ The layers answer different questions:
   modifier alone, which the system's shortcut API cannot hold; they need
   a raw keyboard listener, which Whispering had and deleted
   (`docs/history.md`, 2026-06-18).
-- **`--transcribe-file` runs the app's own model code and reads nothing
-  of the app's.** It names a downloaded model and a file, prints the
-  model's words, and exits before any window or plugin starts. Refused,
-  until someone needs them: reading `settings.json` for a default model,
-  applying `dictionary.txt`, whose rules are TypeScript, and sending the
-  file to a server, which needs the Keychain.
+- **`--transcribe-file` runs the app's own model code and reads one
+  setting.** It prints the model's words and exits before any window or
+  plugin starts. With no `--model` it uses the model chosen in the app,
+  read from `settings.json`. A failure exits 1 and has a name a caller can
+  switch on: `NoSpeech`, `ModelMissing`, `Unreadable`, `Failed`. Refused,
+  until someone needs them: applying `dictionary.txt` or cleanup, whose
+  rules are TypeScript, and sending the file to a server, which needs the
+  Keychain.
 - **The browser recorder turns voice processing off and writes on Stop.**
   Echo cancellation and noise suppression change the audio the server hears.
   Refused: writing chunks while recording, which would leave a half-written
