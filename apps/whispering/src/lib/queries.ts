@@ -10,10 +10,11 @@
  */
 import { MutationCache, QueryClient } from '@tanstack/svelte-query';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
+import { Ok } from 'wellcrafted/result';
 import { recordings } from './data/recordings';
 import { settings } from './data/settings';
 import { textFiles } from './data/text-files';
-import { local, recorder, servers } from './platform/index';
+import { local, paste, recorder, servers } from './platform/index';
 
 export const queryClient = new QueryClient({
 	defaultOptions: {
@@ -86,6 +87,13 @@ export const modelsMutations = resultMutations(['models'], {
 	}) => local.download(id, onProgress),
 	remove: ({ id }: { id: string }) => local.remove(id),
 });
+
+/** Whether a paste at the cursor can land now. Asked again each time a screen opens it. */
+export const pasteQueries = resultQueries(['paste'], {
+	allowed: async () => Ok(await paste.allowed()),
+});
+
+queryClient.setQueryDefaults(pasteQueries.allowed.key, { staleTime: 0 });
 
 /** The microphones connected now. Asked again each time a screen opens it. */
 export const microphonesQueries = resultQueries(['microphones'], {

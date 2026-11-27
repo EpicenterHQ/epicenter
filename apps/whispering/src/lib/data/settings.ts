@@ -11,8 +11,12 @@
  * 	"transcription.server.model": "whisper-1",
  * 	"microphone": null,
  * 	"shortcut.toggle": "CommandOrControl+Shift+Semicolon",
- * 	"shortcut.hold": "Alt+Space",
+ * 	"shortcut.hold": "",
  * 	"shortcut.handsFree": "",
+ * 	"output.paste": false,
+ * 	"output.pauseMedia": false,
+ * 	"output.sounds": false,
+ * 	"output.pill": true,
  * 	"recordings.keepDays": null,
  * 	"cleanup.enabled": false,
  * 	"cleanup.baseUrl": "",
@@ -65,9 +69,20 @@ const SCHEMA = Type.Object({
 		default: 'CommandOrControl+Shift+Semicolon',
 	}),
 	/** Records while held. */
-	'shortcut.hold': Type.String({ default: 'Alt+Space' }),
+	'shortcut.hold': Type.String({ default: '' }),
 	/** Turns hands-free on and off. */
 	'shortcut.handsFree': Type.String({ default: '' }),
+	/**
+	 * Whether a finished take is also pasted where the person is typing.
+	 * The text is on the clipboard either way.
+	 */
+	'output.paste': Type.Boolean({ default: false }),
+	/** Whether music and video are paused while a take records. */
+	'output.pauseMedia': Type.Boolean({ default: false }),
+	/** Whether a note plays as a take starts and as it ends. */
+	'output.sounds': Type.Boolean({ default: false }),
+	/** Whether the pill floats over other apps while something happens. */
+	'output.pill': Type.Boolean({ default: true }),
 	/**
 	 * How many days a recording is kept; null keeps every one. An older
 	 * recording is deleted, audio and note, after the next take and when

@@ -20,6 +20,7 @@ function hear<T>(event: string, handle: (payload: T) => void): () => void {
 }
 
 export const nativePill: Pill = {
+	available: true,
 	publish(state) {
 		void emitTo<PillState>(PILL, STATE, state);
 	},

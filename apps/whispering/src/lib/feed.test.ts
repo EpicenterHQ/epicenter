@@ -12,6 +12,13 @@ import {
 } from './feed';
 
 describe('recordedAt', () => {
+	test('reads the moment out of a take the recorder named', () => {
+		// The id the recorder plugin's own test makes (`time_id` in `listen.rs`).
+		expect(recordedAt('2026-10-30T22-41-05-123Z-k3x9a2f8')?.getTime()).toBe(
+			1_793_400_065_123,
+		);
+	});
+
 	test('reads the moment back out of a timeId', () => {
 		const at = new Date('2026-10-30T22:41:05.123Z');
 		expect(recordedAt(timeId(at))).toEqual(at);

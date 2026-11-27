@@ -8,6 +8,7 @@
  */
 import { shortcuts } from './platform';
 import type { ShortcutName } from './platform/shortcuts/shortcuts';
+import { isMac, sameShortcut } from './shortcut';
 
 const NONE: Record<ShortcutName, string> = {
 	toggle: '',
@@ -31,9 +32,11 @@ export const shortcutHolds = {
 		const [first, second, third] = [keys.toggle, keys.hold, keys.handsFree];
 		const twice: Partial<Record<ShortcutName, string>> = {};
 		// The same keys for two things would do both; the later one is left off.
-		if (second && second === first)
+		const same = (a: string, b: string) =>
+			!!a && !!b && sameShortcut(a, b, isMac());
+		if (same(second, first))
 			twice.hold = 'Start and stop already uses these keys.';
-		if (third && (third === first || third === second))
+		if (same(third, first) || same(third, second))
 			twice.handsFree = 'Another shortcut already uses these keys.';
 		const wanted = paused
 			? NONE

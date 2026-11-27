@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { shortcutLabel, shortcutOf } from './shortcut';
+import { sameShortcut, shortcutLabel, shortcutOf } from './shortcut';
 
 const press = (
 	code: string,
@@ -47,4 +47,21 @@ test('elsewhere the keys are named and joined', () => {
 
 test('no shortcut reads as nothing', () => {
 	expect(shortcutLabel('', true)).toBe('');
+});
+
+test('keys that would be lost to typing are not a shortcut', () => {
+	// A capital A, a Shift+Space, and Option+E, which types an accent on a Mac.
+	expect(shortcutOf(press('KeyA', { shiftKey: true }))).toBeUndefined();
+	expect(shortcutOf(press('Space', { shiftKey: true }))).toBeUndefined();
+	expect(shortcutOf(press('KeyE', { altKey: true }))).toBeUndefined();
+	expect(shortcutOf(press('KeyE', { altKey: true, ctrlKey: true }))).toBe(
+		'Control+Alt+KeyE',
+	);
+});
+
+test('the same keys are the same shortcut however they are written', () => {
+	const written = 'CommandOrControl+Shift+Semicolon';
+	expect(sameShortcut(written, 'Shift+Command+Semicolon', true)).toBe(true);
+	expect(sameShortcut(written, 'Shift+Command+Semicolon', false)).toBe(false);
+	expect(sameShortcut('Alt+Space', 'Alt+Shift+Space', true)).toBe(false);
 });

@@ -26,21 +26,43 @@ import {
 import { cleanupServer, DEFAULTS, transcriber } from './data/settings';
 import { CLEANUP_PROMPT, DICTIONARY } from './data/text-files';
 import type { Fix, HandsFree, Outcome, Take, Trigger } from './dictation-view';
-import { copyText, local, recorder, servers } from './platform';
+import { copyText, local, media, paste, recorder, servers } from './platform';
 import {
 	type EndedReason,
 	HEARD,
+	type HeardTake,
 	type StoppedRecording,
 } from './platform/recorder/recorder';
+import type { ShortcutName } from './platform/shortcuts/shortcuts';
 import {
 	queryClient,
 	recordingsMutations,
 	settingsQueries,
 	textFilesQueries,
 } from './queries';
+import { sounds } from './sounds';
 
 /** A hold-to-talk press shorter than this is not a take. */
 const TAP_MS = 300;
+
+/**
+ * A take hands-free started with less voice in it than this was a cough, a
+ * door or a key press, and is deleted without being transcribed. A short
+ * word ("yes") runs longer.
+ */
+const MIN_VOICED_MS = 150;
+
+/**
+ * How long a finished take waits for the takes before it to be delivered.
+ * Past this it goes out of turn, so one stuck request cannot hold back
+ * everything said after it.
+ */
+const TURN_WAIT_MS = 30_000;
+
+/** How long the app in front gets to take a paste before the clipboard changes again. */
+const PASTE_LANDS_MS = 150;
+
+const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 /** How long a take may send only silence before the screens point it out. */
 const QUIET_MS = 3000;
@@ -104,14 +126,40 @@ function createDictation() {
 	let listening = $state(false);
 	/** Whether the hold-to-talk keys are down now. */
 	let holding = false;
+	/** Turning hands-free on and off, one at a time and in the order asked. */
+	let switching: Promise<void> = Promise.resolve();
+	/** What this hands-free session has delivered so far, phrase by phrase. */
+	let session: string[] = [];
+	/** Resolves when the latest finished take has been delivered. */
+	let lastDelivery: Promise<void> = Promise.resolve();
+	/** What media pause paused, to play again after the take. */
+	let pausedMedia: string[] = [];
+
+	/** Pause music and video for a take, when the settings ask. */
+	async function pauseMedia() {
+		if ((await currentSettings())['output.pauseMedia'])
+			pausedMedia = await media.pause();
+	}
+
+	/** Play again what `pauseMedia` paused. */
+	function resumeMedia() {
+		const paused = pausedMedia;
+		pausedMedia = [];
+		if (paused.length > 0) void media.resume(paused);
+	}
+
+	/** Play the start or the stop sound, when the settings ask. */
+	async function sound(which: 'start' | 'stop') {
+		if ((await currentSettings())['output.sounds']) sounds[which]();
+	}
 
 	async function start(trigger: Trigger) {
 		take = { kind: 'starting' };
 		level = 0;
 		silent = false;
-		const startedAt = Date.now();
-		let heardAt = startedAt;
+		let heardAt = Date.now();
 		const { microphone } = await currentSettings();
+		await pauseMedia();
 		const { error } = await recorder.start(timeId(), {
 			device: microphone ?? null,
 			onEnded: (reason) => {
@@ -129,6 +177,7 @@ function createDictation() {
 		});
 		if (error) {
 			take = { kind: 'idle' };
+			resumeMedia();
 			// A chosen microphone that is unplugged is refused, never swapped
 			// for another, so point to where another can be chosen.
 			if (error.name === 'NoInputDevice' || error.name === 'InputUnavailable')
@@ -138,9 +187,13 @@ function createDictation() {
 				});
 			return toastOnError(error, 'Could not start recording');
 		}
-		take = { kind: 'recording', startedAt, trigger };
+		// Timed from here, when the microphone is open: the clock, and a hold's
+		// length, count what could be recorded.
+		heardAt = Date.now();
+		take = { kind: 'recording', startedAt: heardAt, trigger };
 		// Let go while the microphone was opening: nothing was said into it.
-		if (trigger === 'hold' && !holding) await cancel();
+		if (trigger === 'hold' && !holding) return cancel();
+		void sound('start');
 	}
 
 	async function stop() {
@@ -148,34 +201,52 @@ function createDictation() {
 		take = { kind: 'stopping' };
 		const { data, error } = await recorder.stop();
 		take = { kind: 'idle' };
+		resumeMedia();
+		void sound('stop');
 		if (error) return toastOnError(error, 'Could not finish the recording');
 		await keep(data);
 	}
 
 	/**
 	 * Save the finished take `recording`, then transcribe and deliver it.
-	 * `heardByVoice` is a take hands-free started on its own.
+	 * `voice` is a take hands-free started on its own.
+	 *
+	 * Takes are transcribed side by side and delivered in the order they
+	 * were made: each waits for the one before it, so a long sentence that
+	 * takes longer to transcribe still lands before the short one after it.
 	 */
 	async function keep(
-		recording: StoppedRecording,
-		{ heardByVoice = false } = {},
+		{ id, durationMs }: StoppedRecording,
+		{ voice = false } = {},
 	) {
-		const saved = await runMutation(
-			queryClient,
-			recordingsMutations.add,
-			recording,
-		);
-		if (saved.error) {
-			outcome = {
-				kind: 'failed',
-				id: recording.id,
-				label: 'Not saved',
-				why: saved.error.message,
-			};
-			return toastOnError(saved, 'Could not save the recording');
+		// Taken now, before anything is awaited, so turns follow take order.
+		const before = lastDelivery;
+		let delivered = () => {};
+		lastDelivery = new Promise<void>((done) => {
+			delivered = done;
+		});
+		try {
+			const saved = await runMutation(queryClient, recordingsMutations.add, {
+				id,
+				durationMs,
+			});
+			if (saved.error) {
+				outcome = {
+					kind: 'failed',
+					id,
+					label: 'Not saved',
+					why: saved.error.message,
+				};
+				return toastOnError(saved, 'Could not save the recording');
+			}
+			void forgetOld();
+			await transcribe(id, {
+				voice,
+				turn: Promise.race([before, wait(TURN_WAIT_MS)]),
+			});
+		} finally {
+			delivered();
 		}
-		void forgetOld();
-		await transcribe(recording.id, { heardByVoice });
 	}
 
 	/** Delete the recordings older than the settings keep, if they keep a limit. */
@@ -191,9 +262,28 @@ function createDictation() {
 	}
 
 	/**
+	 * Keep a take hands-free heard, unless it holds too little voice to be
+	 * speech: that one is deleted here, before any model or server hears it.
+	 */
+	async function keepHeard({ id, durationMs, voicedMs }: HeardTake) {
+		if (voicedMs >= MIN_VOICED_MS)
+			return keep({ id, durationMs }, { voice: true });
+		// The one place audio is deleted unasked, so it always leaves a line.
+		console.info(
+			`Hands-free dropped take ${id}: a voice for ${voicedMs} ms of ${durationMs} ms.`,
+		);
+		const removed = await runMutation(queryClient, recordingsMutations.delete, {
+			id,
+		});
+		if (removed.error)
+			toastOnError(removed, 'Could not throw the recording away');
+	}
+
+	/**
 	 * Turn hands-free on: the microphone stays open, and each phrase spoken
 	 * is a take that ends on a pause and is delivered like any other. The
-	 * next phrase can start while the last one is transcribed.
+	 * next phrase can start while the last one is transcribed. Music stays
+	 * paused for as long as it listens, since a song would be heard as speech.
 	 */
 	async function listen() {
 		const handsFree = recorder.handsFree;
@@ -201,29 +291,32 @@ function createDictation() {
 		listening = true;
 		level = 0;
 		silent = false;
+		session = [];
 		const { microphone } = await currentSettings();
+		await pauseMedia();
 		const { error } = await handsFree.start({
 			device: microphone ?? null,
-			id: timeId,
 			onLevel: (next) => {
 				level = next;
 			},
 			onSpeech: () => {
-				take = { kind: 'recording', startedAt: Date.now(), trigger: 'voice' };
+				if (listening)
+					take = { kind: 'recording', startedAt: Date.now(), trigger: 'voice' };
 			},
-			onPhrase: (recording) => {
+			onPhrase: (heard) => {
 				take = { kind: 'idle' };
-				void keep(recording, { heardByVoice: true });
+				void keepHeard(heard);
 			},
 			onEnded: (reason) => {
 				toast.warning('Hands-free stopped', {
 					description: `${ENDED[reason]} What was recorded is kept.`,
 				});
-				void unlisten();
+				setHandsFree(false);
 			},
 		});
 		if (error) {
 			listening = false;
+			resumeMedia();
 			if (error.name === 'NoInputDevice' || error.name === 'InputUnavailable')
 				return toast.error('Could not start listening', {
 					description: error.message,
@@ -231,8 +324,7 @@ function createDictation() {
 				});
 			return toastOnError(error, 'Could not start listening');
 		}
-		// Turned off while the microphone was opening: close it again.
-		if (!listening) await handsFree.stop();
+		void sound('start');
 	}
 
 	/** Turn hands-free off, keeping and delivering a phrase under way. */
@@ -244,8 +336,76 @@ function createDictation() {
 		const { data, error } = await handsFree.stop();
 		take = { kind: 'idle' };
 		level = 0;
+		resumeMedia();
+		void sound('stop');
 		if (error) return toastOnError(error, 'Could not finish the recording');
-		if (data) await keep(data, { heardByVoice: true });
+		if (data) void keepHeard(data);
+	}
+
+	/**
+	 * Turn hands-free on or off. Each change waits for the one before it,
+	 * so on, off and on again in a hurry end with it on and one microphone
+	 * open, never with a microphone open that no switch shows.
+	 */
+	function setHandsFree(on: boolean) {
+		switching = switching.then(async () => {
+			await (on ? listen() : unlisten());
+		});
+	}
+
+	/**
+	 * Put the take `id`'s `text` where the person wants it, and say where
+	 * it went. It always reaches the clipboard. With paste at the cursor
+	 * on, the paste keys are then pressed in the app in front, unless that
+	 * app is Whispering itself; a paste that cannot be made leaves the text
+	 * on the clipboard and says so.
+	 *
+	 * In a hands-free session the clipboard ends up holding everything said
+	 * so far, joined by spaces; each phrase is pasted on its own, with a
+	 * space before every one but the first.
+	 *
+	 * Answers where the text went, or undefined when it could not be copied.
+	 */
+	async function deliver(id: string, text: string, voice: boolean) {
+		const settings = await currentSettings();
+		const pasting =
+			settings['output.paste'] && paste.available && !document.hasFocus();
+		const piece = voice && session.length > 0 ? ` ${text}` : text;
+		if (voice) session.push(text);
+		const whole = voice ? session.join(' ') : text;
+		const copy = (copied: string) =>
+			tryAsync({
+				try: () => copyText(copied),
+				catch: (cause) => DictationError.CopyFailed({ cause }),
+			});
+
+		const copied = await copy(pasting ? piece : whole);
+		if (copied.error) {
+			outcome = {
+				kind: 'failed',
+				id,
+				label: 'Not copied',
+				why: copied.error.message,
+			};
+			toastOnError(copied, 'Could not copy the transcript');
+			return undefined;
+		}
+		if (!pasting) {
+			outcome = { kind: 'delivered', id, to: 'clipboard', at: Date.now() };
+			return 'clipboard' as const;
+		}
+		const pasted = await paste.press();
+		// The app in front reads the clipboard a moment after the keys.
+		if (whole !== piece) {
+			if (!pasted.error) await wait(PASTE_LANDS_MS);
+			await copy(whole);
+		}
+		if (pasted.error) {
+			outcome = { kind: 'copiedInstead', id, why: pasted.error.message };
+			return 'clipboard' as const;
+		}
+		outcome = { kind: 'delivered', id, to: 'cursor', at: Date.now() };
+		return 'cursor' as const;
 	}
 
 	/**
@@ -259,7 +419,18 @@ function createDictation() {
 	 * and the replacements apply again. When cleanup is skipped, fails, or
 	 * answers something it cannot trust, the person gets the text without it.
 	 */
-	async function transcribe(id: string, { heardByVoice = false } = {}) {
+	async function transcribe(
+		id: string,
+		{
+			voice = false,
+			turn = Promise.resolve(),
+		}: {
+			/** A take hands-free started: the pill reports it, with no toasts. */
+			voice?: boolean;
+			/** Resolves when the takes before this one have been delivered. */
+			turn?: Promise<unknown>;
+		} = {},
+	) {
 		const settings = await currentSettings();
 		const chosen = transcriber(settings);
 		if (!chosen) {
@@ -317,20 +488,6 @@ function createDictation() {
 				});
 				return;
 			}
-			if (!heard && heardByVoice) {
-				// Hands-free took a cough or a door for a voice. Nobody asked
-				// for this take, so it leaves without a word.
-				transcribing.delete(id);
-				outcome = { kind: 'none' };
-				const removed = await runMutation(
-					queryClient,
-					recordingsMutations.delete,
-					{ id },
-				);
-				if (removed.error)
-					toastOnError(removed, 'Could not throw the recording away');
-				return;
-			}
 			if (!heard) {
 				outcome = {
 					kind: 'failed',
@@ -338,7 +495,9 @@ function createDictation() {
 					label: 'No speech heard',
 					why: 'No speech was heard.',
 				};
-				toast.info('No speech was heard');
+				// The recording is kept either way; a take nobody started by
+				// hand does not also interrupt with a message.
+				if (!voice) toast.info('No speech was heard');
 				return;
 			}
 			const replaced = replaceWords(heard, words.replacements);
@@ -388,26 +547,18 @@ function createDictation() {
 				}
 			}
 
-			const copied = await tryAsync({
-				try: () => copyText(delivered),
-				catch: (cause) => DictationError.CopyFailed({ cause }),
-			});
-			if (copied.error) {
-				outcome = {
-					kind: 'failed',
-					id,
-					label: 'Not copied',
-					why: copied.error.message,
-				};
-				return toastOnError(copied, 'Could not copy the transcript');
-			}
-			outcome = { kind: 'delivered', id, to: 'clipboard', at: Date.now() };
+			await turn;
+			if (gone()) return;
+			const went = await deliver(id, delivered, voice);
+			// The pill and Home say where each hands-free phrase went.
+			if (!went || voice) return;
+			const done = went === 'cursor' ? 'Pasted' : 'Copied';
 			if (notCleaned)
-				return toast.success('Copied without cleanup', {
+				return toast.success(`${done} without cleanup`, {
 					description: notCleaned,
 					action: unauthorized ? openSettings : undefined,
 				});
-			toast.success('Copied', {
+			toast.success(done, {
 				action:
 					delivered === heard
 						? undefined
@@ -425,6 +576,7 @@ function createDictation() {
 		take = { kind: 'stopping' };
 		const { data, error } = await recorder.stop();
 		take = { kind: 'idle' };
+		resumeMedia();
 		if (error) return toastOnError(error, 'Could not stop the recording');
 		const removed = await runMutation(queryClient, recordingsMutations.delete, {
 			id: data.id,
@@ -466,7 +618,7 @@ function createDictation() {
 		/** Start a take, or stop the one under way; `trigger` says what asked. */
 		toggle(trigger: Trigger = 'button') {
 			// While hands-free listens, the button and the shortcut turn it off.
-			if (listening) return void unlisten();
+			if (listening) return setHandsFree(false);
 			if (take.kind === 'idle') return void start(trigger);
 			if (take.kind === 'recording') return void stop();
 		},
@@ -486,6 +638,17 @@ function createDictation() {
 			void (Date.now() - take.startedAt < TAP_MS ? cancel() : stop());
 		},
 
+		/**
+		 * A global shortcut went down, or came up. This is the one place that
+		 * says what each does.
+		 */
+		press(name: ShortcutName, down: boolean) {
+			if (name === 'hold') return this.hold(down);
+			if (!down) return;
+			if (name === 'toggle') return this.toggle('shortcut');
+			setHandsFree(!listening);
+		},
+
 		cancel: () => void cancel(),
 
 		/** Delete the recordings older than the settings keep; the app's frame asks as it opens. */
@@ -500,9 +663,7 @@ function createDictation() {
 			void goto(href);
 		},
 
-		setHandsFree(on: boolean) {
-			void (on ? listen() : unlisten());
-		},
+		setHandsFree,
 
 		/** Whether the recording `id` is with the server now. */
 		isTranscribing(id: string) {

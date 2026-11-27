@@ -50,7 +50,7 @@
 	</SettingsRow>
 	<SettingsRow
 		label="Hold to talk"
-		description="Records while the keys are held, and finishes when you let go."
+		description="Records while the keys are held, and finishes when you let go. Off while Hands-free listens."
 		for="shortcut-hold"
 		disabled={off}
 		error={shortcutHolds.problem('hold')}

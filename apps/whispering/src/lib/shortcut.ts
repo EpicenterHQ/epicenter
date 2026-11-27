@@ -19,21 +19,48 @@ const MODIFIER = /^(Meta|Control|Alt|Shift|OS)(Left|Right)?$/;
 /** A function key works as a shortcut with no modifier; any other key would be lost to typing. */
 const FUNCTION_KEY = /^F\d{1,2}$/;
 
+/** Keys that type a character: with Shift or Option they still type one (`A`, `é`). */
+const TYPES =
+	/^(Key[A-Z]|Digit\d|Numpad.+|Semicolon|Quote|Comma|Period|Slash|Backslash|Backquote|BracketLeft|BracketRight|Minus|Equal)$/;
+
 /**
- * The shortcut `press` makes, or undefined while it is not one yet: only
- * modifiers are down, or a plain key with no modifier.
+ * The shortcut `press` makes, or undefined while it is not one: only
+ * modifiers are down, or the keys would be lost to typing in every app. A
+ * global shortcut takes its keys from whatever app is in front, so a key
+ * that types needs Control or Command, and any other key but a function
+ * key needs Control, Command or Option. Shift alone is never enough.
  */
 export function shortcutOf(press: Press): string | undefined {
 	if (!press.code || MODIFIER.test(press.code)) return undefined;
+	const strong = press.ctrlKey || press.metaKey;
+	const enough = TYPES.test(press.code)
+		? strong
+		: strong || press.altKey || FUNCTION_KEY.test(press.code);
+	if (!enough) return undefined;
 	const modifiers = [
 		press.ctrlKey && 'Control',
 		press.altKey && 'Alt',
 		press.shiftKey && 'Shift',
 		press.metaKey && 'Command',
 	].filter((modifier) => modifier !== false);
-	if (modifiers.length === 0 && !FUNCTION_KEY.test(press.code))
-		return undefined;
 	return [...modifiers, press.code].join('+');
+}
+
+/**
+ * Whether `a` and `b` are the same keys here, however each is written:
+ * `CommandOrControl` is Command on a Mac and Control elsewhere, and the
+ * order of modifiers does not matter.
+ */
+export function sameShortcut(a: string, b: string, mac: boolean): boolean {
+	const keys = (shortcut: string) =>
+		shortcut
+			.split('+')
+			.map((part) =>
+				part === 'CommandOrControl' ? (mac ? 'Command' : 'Control') : part,
+			)
+			.sort()
+			.join('+');
+	return keys(a) === keys(b);
 }
 
 const MAC: Record<string, string> = {

@@ -1,6 +1,7 @@
 # Whispering
 
-Press a shortcut, speak, and get the text on your clipboard. Whispering
+Press a shortcut, speak, and get the text on your clipboard, or pasted
+where you are typing. Whispering
 records on your device, transcribes there too with a model it downloads
 once, or with a transcription server you choose, can have a chat model
 clean up the text, and keeps every recording and transcript as files you
@@ -33,7 +34,7 @@ keep them when space runs low (`navigator.storage.persist()`); a browser
 that says no may clear them.
 
 ```txt
-settings.json           one key per setting: what transcribes, the microphone, shortcuts, cleanup
+settings.json           one key per setting: what transcribes, the microphone, shortcuts, output, cleanup
 dictionary.txt          words to spell as written, and `heard -> written` fixes
 cleanup.md              your own cleanup prompt; without it, the built-in one
 recordings/<id>.md      the note: the text you got as the body; front matter holds
@@ -70,7 +71,7 @@ src/
       preview/               development only: the screens fed a made-up dictation
   lib/
     dictation-view.ts        what a screen may know about dictation (`DictationView`)
-    dictation.svelte.ts      live state, hands-free, and record → save → transcribe → clean up → copy
+    dictation.svelte.ts      live state, hands-free, and record → save → transcribe → clean up → deliver
     queries.ts               the cache: TanStack Query over data/, keys, models, and microphones
     model-downloads.svelte.ts  how far each model download is, for any screen
     data/
@@ -83,11 +84,14 @@ src/
       recorder/              recorder.ts (contract), native.ts, browser.ts
       servers/               servers.ts (contract), native.ts, browser.ts
       shortcuts/             shortcuts.ts (contract), native.ts, browser.ts: keys that work from any app
+      paste/                 paste.ts (contract), native.ts, browser.ts: the paste keys, in the app in front
+      media/                 media.ts (contract), native.ts, browser.ts: pausing music for a take
       local/                 local.ts (contract), native.ts, browser.ts: models on this computer
       pill/                  pill.ts (contract), native.ts, browser.ts: the two windows talking
     cleanup.ts               pure rules: the dictionary, when cleanup runs, what it is told
     shortcut.ts              pure rules: a shortcut's keys from a key press, and as a person reads them
     shortcut-holds.svelte.ts which shortcuts are held now, and why one is not
+    sounds.ts                the notes that mark a take starting and ending
     loudness.ts              a microphone's level as how loud it sounds, for every meter
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
@@ -99,6 +103,8 @@ src-tauri/src/
   local.rs                   transcribes a recording with a model on this computer
   pill.rs                    the pill's window: a panel over every app that never takes focus
   shortcuts.rs               holds the global shortcuts the page names
+  paste.rs                   presses the paste keys, when macOS allows it
+  media.rs, media/           pauses and resumes the system's media, per platform
   main.rs                    commands and plugins
 ```
 
@@ -166,28 +172,66 @@ The layers answer different questions:
   and a key were typed in.
 - **Hands-free listens in the recorder plugin, with the microphone left
   open.** The plugin keeps the last half second it heard, so a take starts
-  before the first syllable, and ends it after 1.2 seconds without a
-  voice; the detector is `earshot`, about 95 KiB of Rust with no model
-  file. The page names each take as its phrase starts, so the id still
-  holds the time it began. A take with no words in it (a cough, a door) is
-  deleted without a message. Refused: watching the level in the page and
-  starting a recording when it rises, which opens the microphone after
-  the speech began; and Silero through ONNX Runtime, about 8 MB more for
-  the same job.
+  before the first syllable, ends it after 1.2 seconds without a voice,
+  and cuts one that never pauses at two minutes; the detector is `earshot`,
+  about 95 KiB of Rust with no model file. The plugin names each take from
+  the time its first sample was heard, in the format the page names one.
+  Refused: watching the level in the page and starting a recording when it
+  rises, which opens the microphone after the speech began; Silero through
+  ONNX Runtime, about 8 MB more for the same job; and the page naming each
+  take, a round trip during which the phrase waited in memory and a slow
+  or refused answer lost it.
+- **Whether a hands-free take is speech is decided from its audio.** Each
+  take says how long the detector heard a voice in it; under 150 ms (a
+  cough, a door) it is deleted before anything transcribes it, with a line
+  in the console. A take that transcribes to nothing is kept and marked
+  "No speech heard". Refused: deleting a take because its transcript came
+  back empty, which deletes real speech when a model or server has a bad
+  moment and keeps the noise a model turns into "Thank you."
 - **Hands-free is on for one run of the app.** Nothing in `settings.json`
   turns it on, so the app never opens a microphone at launch. While it
-  listens, the Record button and the shortcut turn it off. Refused: a
-  saved switch, which leaves a microphone open after a restart that the
-  person did not ask for.
+  listens, the Record button and the shortcut turn it off, and hold to
+  talk does nothing. Turning it on and off is done one change at a time,
+  in the order asked. Refused: a saved switch, which leaves a microphone
+  open after a restart that the person did not ask for.
+- **Takes are transcribed side by side and delivered in the order they
+  were made.** Each waits up to thirty seconds for the one before it, so
+  a long sentence still lands before the short one said after it. In a
+  hands-free session the clipboard holds everything said so far, joined by
+  spaces. Refused: delivering each take as its transcript arrives, which
+  left the clipboard holding whichever finished last.
+- **The text always reaches the clipboard; paste at the cursor presses
+  the paste keys as well.** The clipboard is never put back as it was, so
+  a paste that cannot land costs one ⌘V. On a Mac the press needs the
+  Accessibility permission, and Whispering asks macOS before each paste
+  and says "copied instead" when it is not granted. Nothing is pasted
+  while Whispering's own window is in front. With hands-free on, each
+  phrase is pasted as it is ready, so whatever the microphone hears as
+  speech is typed into the app in front; the setting says so. Refused:
+  borrowing the clipboard and restoring it after the paste, which needs a
+  native copy of every clipboard format and a guess at when the other app
+  has read it.
+- **Media pause plays again only what was playing, and lasts a whole
+  hands-free session.** It is Whispering 7's code: the system's media
+  controls on each platform. Refused: pausing at each phrase, since the
+  music itself would be heard as speech before it paused.
+- **The start and stop sounds mark a take a person started, and
+  hands-free going on and off.** They are two notes made in the page.
+  Refused: a sound for each hands-free phrase, which the open microphone
+  would record into the next take.
 - **A shortcut is a chord the system holds, and hold to talk is a chord
   held down.** `settings.json` names three (`shortcut.toggle`,
   `shortcut.hold`, `shortcut.handsFree`); Rust holds them and sends each
-  press and release, and the page decides what they do. A hold let go
-  within 300 ms is thrown away as a slip. A chord another app holds leaves
-  that one shortcut off and says so on its settings row. Refused: the Fn
-  key or a modifier alone, which the system's shortcut API cannot hold;
-  they need a raw keyboard listener and macOS's Accessibility grant, which
-  Whispering had and deleted (`docs/history.md`, 2026-06-18).
+  press and release, and `dictation.press` decides what they do. Hold to
+  talk has no default: the comfortable chords (⌥Space) belong to launchers
+  many people run. A new shortcut is refused when it would be lost to
+  typing: a key that types needs Control or Command, and Shift alone is
+  never enough. A hold let go within 300 ms of the microphone opening is
+  thrown away as a slip. A chord another app holds leaves that one
+  shortcut off and says so on its settings row. Refused: the Fn key or a
+  modifier alone, which the system's shortcut API cannot hold; they need
+  a raw keyboard listener, which Whispering had and deleted
+  (`docs/history.md`, 2026-06-18).
 - **`--transcribe-file` runs the app's own model code and reads nothing
   of the app's.** It names a downloaded model and a file, prints the
   model's words, and exits before any window or plugin starts. Refused,

@@ -73,26 +73,17 @@ export const nativeRecorder: Recorder = {
 		};
 	},
 
-	/**
-	 * Hands-free, in the recorder plugin (`listen.rs`). The plugin says a
-	 * phrase started; this names its take at once, and tells `onSpeech`
-	 * only when the name was taken. A name that is refused loses that one
-	 * phrase and nothing else: the plugin drops it and keeps listening.
-	 */
+	/** Hands-free, in the recorder plugin (`listen.rs`), which names and writes each take. */
 	handsFree: {
-		async start({ device, id, onLevel, onSpeech, onPhrase, onEnded }) {
-			const folder = await appLocalDataDir();
+		async start({ device, onLevel, onSpeech, onPhrase, onEnded }) {
 			const signals = new Channel<ListenSignal>();
 			signals.onmessage = (signal) => {
 				if (signal.kind === 'level') return onLevel(signal.level ?? 0);
-				if (signal.kind === 'phrase') return onPhrase(signal.recording);
-				if (signal.kind === 'ended') return onEnded(signal.reason);
-				const phrase = id();
-				void commands.namePhrase(folder, phrase).then((named) => {
-					if (!named.error) onSpeech(phrase);
-				});
+				if (signal.kind === 'speech') return onSpeech(signal.id);
+				if (signal.kind === 'phrase') return onPhrase(signal.take);
+				onEnded(signal.reason);
 			};
-			return commands.listen(device, signals);
+			return commands.listen(await appLocalDataDir(), device, signals);
 		},
 
 		async stop() {

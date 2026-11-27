@@ -16,12 +16,12 @@
 	import { page } from '$app/state';
 	import { dictation } from '#lib/dictation.svelte.ts';
 	import { transcriber } from '#lib/data/settings.ts';
-	import { type Keys, type Need, setDictation } from '#lib/dictation-view.ts';
-	import { local, pill, shortcuts } from '#lib/platform/index.ts';
+	import { type Keys, type Need, type Outcome, setDictation } from '#lib/dictation-view.ts';
+	import { local, paste, pill, shortcuts } from '#lib/platform/index.ts';
 	import { isMac, shortcutLabel } from '#lib/shortcut.ts';
 	import { shortcutHolds } from '#lib/shortcut-holds.svelte.ts';
 	import { runQuery } from 'wellcrafted/query';
-	import { modelsQueries, queryClient, settingsQueries } from '#lib/queries.ts';
+	import { modelsQueries, pasteQueries, queryClient, settingsQueries } from '#lib/queries.ts';
 	import AppSidebar from './AppSidebar.svelte';
 	import RecordingBar from './RecordingBar.svelte';
 
@@ -45,7 +45,29 @@
 	 * model downloaded. Nothing until the settings and the models are read,
 	 * so no screen flashes a need that is met.
 	 */
-	const needs = $derived.by<Need[]>(() => {
+	/** Whether macOS lets a paste land; asked again when the window comes back from System Settings. */
+	const pasteAllowed = createQuery(
+		() => ({
+			...pasteQueries.allowed(),
+			enabled: paste.available && settings.data?.['output.paste'] === true,
+			refetchOnWindowFocus: 'always' as const,
+		}),
+		() => queryClient,
+	);
+	const pasteNeed = $derived<Need[]>(
+		settings.data?.['output.paste'] && paste.available && pasteAllowed.data === false
+			? [
+					{
+						id: 'accessibility',
+						met: false,
+						problem:
+							'Paste at the cursor is off: macOS has not allowed it. Text goes to your clipboard instead.',
+						fix: { label: 'Allow it', href: '/settings/output' },
+					},
+				]
+			: [],
+	);
+	const transcriptionNeeds = $derived.by<Need[]>(() => {
 		if (!settings.data) return [];
 		const chosen = transcriber(settings.data);
 		if (chosen?.kind === 'server') return [];
@@ -83,6 +105,7 @@
 				? shortcutLabel(holdKeys, isMac())
 				: undefined,
 	});
+	const needs = $derived<Need[]>([...transcriptionNeeds, ...pasteNeed]);
 	const view = { ...dictation, needs: () => needs, keys: () => keys };
 	setDictation(view);
 
@@ -93,32 +116,30 @@
 	const wide = new MediaQuery('min-width: 768px');
 	let sidebarOpen = $state(true);
 
-	// Hold the shortcuts the settings name, again whenever one changes or
-	// the Shortcuts page stops reading a new one.
+	const settingsKnown = $derived(settings.data !== undefined);
+	// Hold the shortcuts the settings name, again only when one of them
+	// changes or the Shortcuts page stops reading a new one. Letting the
+	// keys go loses a release under way, so a held take is finished first.
 	$effect(() => {
-		if (!settings.data) return;
+		if (!settingsKnown) return;
 		shortcutHolds.paused();
-		void shortcutHolds.apply({ toggle: toggleKeys, hold: holdKeys, handsFree: handsFreeKeys });
+		const keys = { toggle: toggleKeys, hold: holdKeys, handsFree: handsFreeKeys };
+		dictation.hold(false);
+		void shortcutHolds.apply(keys);
 	});
-	// What each shortcut does, from any app.
-	$effect(() =>
-		shortcuts.onPress((name, down) => {
-			if (name === 'hold') return dictation.hold(down);
-			if (!down) return;
-			if (name === 'toggle') return dictation.toggle('shortcut');
-			dictation.setHandsFree(dictation.handsFree().kind !== 'listening');
-		}),
-	);
+	$effect(() => shortcuts.onPress((name, down) => dictation.press(name, down)));
 
-	// The floating pill shows the take from any app and sends back what was pressed.
+	const pillOn = $derived(settings.data?.['output.pill'] ?? true);
+	// The floating pill shows the take from any app and sends back what was
+	// pressed. Turned off in the settings, it is told nothing is happening.
 	$effect(() => {
-		const outcome = dictation.outcome();
+		const outcome: Outcome = pillOn ? dictation.outcome() : { kind: 'none' };
 		pill.publish({
-			take: dictation.take(),
+			take: pillOn ? dictation.take() : { kind: 'idle' },
 			outcome,
 			level: dictation.level(),
 			silent: dictation.silent(),
-			handsFree: dictation.handsFree(),
+			handsFree: pillOn ? dictation.handsFree() : { kind: 'off' },
 			keys,
 			cleaning: outcome.kind === 'transcribing' && dictation.isCleaning(outcome.id),
 		});

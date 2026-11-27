@@ -39,6 +39,8 @@ export type PillAction =
 	| { kind: 'show'; href: string };
 
 export type Pill = {
+	/** Whether this place has a floating pill at all. */
+	available: boolean;
 	/** From the main window: send the pill what dictation shows now. */
 	publish(state: PillState): void;
 	/**

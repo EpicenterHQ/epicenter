@@ -13,7 +13,8 @@ rules keep that one page from asking where it runs. The
 - `src/lib/queries.ts` is the only cache. Screens read through its queries
   and write through its mutations; every write refreshes every query.
 - `src/lib/dictation.svelte.ts` is the one place the record, save,
-  transcribe, clean up and copy sequence is written; `src/lib/cleanup.ts`
+  transcribe, clean up and deliver sequence is written, and what each
+  global shortcut does; `src/lib/cleanup.ts`
   holds its pure rules.
 - Screens read dictation through `getDictation()` (`DictationView` in
   `src/lib/dictation-view.ts`); only `(app)/+layout.svelte` imports

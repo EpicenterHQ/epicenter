@@ -2,6 +2,7 @@
 import type { Pill } from './pill';
 
 export const browserPill: Pill = {
+	available: false,
 	publish() {},
 	onAction: () => () => {},
 	onState: () => () => {},

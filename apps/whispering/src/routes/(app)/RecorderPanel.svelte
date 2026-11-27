@@ -60,7 +60,7 @@
 			<button
 				type="button"
 				class="flex size-28 shrink-0 items-center justify-center rounded-full transition-transform hover:brightness-110 active:scale-95 disabled:opacity-60 motion-reduce:transition-none"
-				aria-label={live ? 'Stop recording' : 'Start recording'}
+				aria-label={live ? 'Stop recording' : listening ? 'Stop listening' : 'Start recording'}
 				disabled={busy}
 				onclick={() => dictation.toggle()}
 			>
@@ -144,6 +144,7 @@
 						id="hands-free"
 						size="sm"
 						checked={handsFree.kind === 'listening'}
+						disabled={handsFree.kind === 'off' && take.kind !== 'idle'}
 						onCheckedChange={(on) => dictation.setHandsFree(on)}
 					/>
 				</div>

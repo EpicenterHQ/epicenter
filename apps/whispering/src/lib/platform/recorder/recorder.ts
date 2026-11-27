@@ -12,13 +12,14 @@
  */
 import type {
 	EndedReason,
+	HeardTake,
 	Input,
 	RecorderError,
 	StoppedRecording,
 } from '@epicenter/recorder/native';
 import type { Result } from 'wellcrafted/result';
 
-export type { EndedReason, Input, RecorderError, StoppedRecording };
+export type { EndedReason, HeardTake, Input, RecorderError, StoppedRecording };
 
 /**
  * A level above this is sound. A microphone that sends nothing louder (a
@@ -64,20 +65,19 @@ export type Recorder = {
  */
 export type HandsFreeRecorder = {
 	/**
-	 * Open `device` and listen. `id` names each take as its phrase starts,
-	 * so the id holds the time the phrase began. `onSpeech` hears that a
-	 * phrase started, with its id; `onPhrase` hears its finished take.
-	 * `onEnded` hears a microphone or a disk that stopped on its own; `stop`
-	 * then answers what was being written.
+	 * Open `device` and listen. The recorder names each take from the time
+	 * its phrase began. `onSpeech` hears that a phrase started, with its
+	 * id; `onPhrase` hears its finished take, with how long a voice was
+	 * heard in it (`voicedMs`). `onEnded` hears a microphone or a disk that
+	 * stopped on its own; `stop` then answers what was being written.
 	 */
 	start(options: {
 		device: string | null;
-		id: () => string;
 		onLevel: (level: number) => void;
 		onSpeech: (id: string) => void;
-		onPhrase: (recording: StoppedRecording) => void;
+		onPhrase: (take: HeardTake) => void;
 		onEnded: (reason: EndedReason) => void;
 	}): Answer<null>;
 	/** Close the microphone; answers the take being written, finished, or null between phrases. */
-	stop(): Answer<StoppedRecording | null>;
+	stop(): Answer<HeardTake | null>;
 };
