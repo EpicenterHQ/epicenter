@@ -136,38 +136,9 @@ packages/app/src/command       epicenter: serve, MCP, and calls to serve
 
 ## Development
 
-Use Bun in this repo.
-
-```bash
-git clone https://github.com/EpicenterHQ/epicenter.git
-cd epicenter
-bun install
-```
-
-Every app starts from the repo root. `bun dev:<app>` runs that app's dev server, and `bun run` with no arguments lists every target.
-
-| Command | Starts | App port |
-| --- | --- | --- |
-| `bun dev:whispering` | Whispering in a browser tab | 1420 |
-| `bun dev:landing` | Landing site | 4321 |
-
-Rust is needed for Whispering's desktop build.
-
-`bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
-
-```bash
-bun run check
-```
-
-Run the pieces on their own while you work:
-
-```bash
-bun run format          # rewrite formatting (CI autofixes this for you)
-bun run lint            # fix lint findings
-bun run typecheck
-bun run test
-bun run check          # the whole merge gate: the above plus unused code (knip), doc paths, catalog pins, UI boundary, boot purity
-```
+Use Bun, and start every app from the repo root with `bun dev:<app>`. Setup,
+the dev servers, and the `bun run check` gate are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Design notes
 
