@@ -35,8 +35,8 @@ export type PillAction =
 	| { kind: 'cancel' }
 	| { kind: 'dismiss' }
 	| { kind: 'setHandsFree'; on: boolean }
-	/** Clicked the pill: open Whispering, at the recording `id` when given. */
-	| { kind: 'show'; id?: string };
+	/** Clicked the pill: open Whispering at `href`. */
+	| { kind: 'show'; href: string };
 
 export type Pill = {
 	/** From the main window: send the pill what dictation shows now. */

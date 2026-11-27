@@ -73,7 +73,7 @@
 			else if (action.kind === 'cancel') dictation.cancel();
 			else if (action.kind === 'dismiss') dictation.dismiss();
 			else if (action.kind === 'setHandsFree') dictation.setHandsFree(action.on);
-			else dictation.show(action.id);
+			else dictation.show(action.href);
 		}),
 	);
 </script>

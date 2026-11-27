@@ -18,6 +18,7 @@
 		Take,
 	} from '#lib/dictation-view.ts';
 	import { setDictation } from '#lib/dictation-view.ts';
+	import { goto } from '$app/navigation';
 	import { pill } from '#lib/platform/index.ts';
 	import NeedsLine from '../NeedsLine.svelte';
 	import Pill from '../../Pill.svelte';
@@ -98,7 +99,7 @@
 		toggle: () => {},
 		cancel: () => {},
 		dismiss: () => (scene = READY),
-		show: () => {},
+		show: (href) => void goto(href),
 		setHandsFree: () => {},
 		transcribe: () => {},
 		forget: () => {},

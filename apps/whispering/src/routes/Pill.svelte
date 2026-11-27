@@ -9,7 +9,8 @@
 	cleaning up, and where the text went. A clean delivery steps aside after
 	a moment, because the text is its own confirmation; a fallback or a
 	failure stays until clicked or the next take, so it is not missed.
-	Clicking the pill opens Whispering, at the recording when there is one.
+	Clicking the pill opens Whispering: at the microphone settings while it
+	says No sound, else at the take's recording, else at Home.
 
 	It is dark glass in either theme, because it floats over whatever app is
 	in front and must read on all of them. Stop is always the rightmost
@@ -66,10 +67,13 @@
 	const wide = $derived(take.kind === 'recording' || (listening && take.kind === 'idle'));
 	const failed = $derived(take.kind === 'idle' && !listening && outcome.kind === 'failed');
 
+	const silent = $derived(take.kind === 'recording' && dictation.silent());
+
 	function open() {
+		if (silent) return dictation.show('/settings/microphone');
 		const id = take.kind === 'idle' && outcome.kind !== 'none' ? outcome.id : undefined;
 		if (outcome.kind === 'copiedInstead' || outcome.kind === 'failed') dictation.dismiss();
-		dictation.show(id);
+		dictation.show(id ? `/recordings?id=${encodeURIComponent(id)}` : '/');
 	}
 </script>
 
@@ -85,7 +89,7 @@
 		<button
 			type="button"
 			class="flex h-full min-w-0 flex-1 items-center gap-2.5 text-left"
-			aria-label="Open Whispering"
+			aria-label={silent ? 'Open microphone settings' : 'Open Whispering'}
 			onclick={open}
 		>
 			{#if take.kind === 'recording'}

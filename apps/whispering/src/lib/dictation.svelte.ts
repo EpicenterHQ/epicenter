@@ -345,9 +345,9 @@ function createDictation() {
 			outcome = { kind: 'none' };
 		},
 
-		/** The pill has no window of its own yet, so this opens the place in this one. */
-		show(id?: string) {
-			void goto(id ? `/recordings?id=${encodeURIComponent(id)}` : '/');
+		/** Open `href` in this window; the pill's window brings this one forward first. */
+		show(href: string) {
+			void goto(href);
 		},
 
 		setHandsFree(_on: boolean) {},

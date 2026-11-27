@@ -115,8 +115,8 @@ export type DictationView = {
 	cancel(): void;
 	/** Clear the latest take's outcome, once the person has seen it. */
 	dismiss(): void;
-	/** Bring Whispering's window forward, at the recording `id` when given. */
-	show(id?: string): void;
+	/** Bring Whispering's window forward, at `href` (an address in the app, such as `/settings/microphone`). */
+	show(href: string): void;
 	/** Turn hands-free on or off; does nothing while it is unavailable. */
 	setHandsFree(on: boolean): void;
 	/** Transcribe the recording `id` again, then clean up and deliver it. */

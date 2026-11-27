@@ -34,7 +34,7 @@
 		toggle: () => pill.send({ kind: 'toggle' }),
 		cancel: () => pill.send({ kind: 'cancel' }),
 		dismiss: () => pill.send({ kind: 'dismiss' }),
-		show: (id) => pill.send({ kind: 'show', id }),
+		show: (href) => pill.send({ kind: 'show', href }),
 		setHandsFree: (on) => pill.send({ kind: 'setHandsFree', on }),
 		transcribe: () => {},
 		forget: () => {},
