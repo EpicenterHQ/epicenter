@@ -103,7 +103,7 @@ Applications under `apps/` are programs that work without an Epicenter.
 
 | App | What it is |
 | --- | --- |
-| [Whispering](apps/whispering) | Voice recorder and speech-to-text, in a browser tab or as a desktop app. Recordings, transcripts, and settings are files in a folder. |
+| [Whispering](apps/whispering) | Dictation: press a shortcut, speak, and get the text. A desktop app that transcribes on your computer, and a browser tab that uses a server. Recordings, transcripts, and settings are plain files. |
 | [Landing](apps/landing) | The website at epicenter.so. |
 
 ### Packages
@@ -115,7 +115,7 @@ Applications under `apps/` are programs that work without an Epicenter.
 | [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 
 Whispering's own packages are under
-[apps/whispering-old/packages/](apps/whispering-old/packages).
+[apps/whispering/packages/](apps/whispering/packages).
 
 ## Architecture
 
