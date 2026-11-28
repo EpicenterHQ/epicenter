@@ -80,13 +80,8 @@ struct CatalogEntry {
     recommended: bool,
 }
 
-/// The curated GGUF catalog. Hand-seeded from the `handy-computer` Hugging Face
-/// org (quantizations tested against transcribe.cpp). A build-time generator
-/// from the org is deferred until this list is large enough to need it.
-///
-/// Filenames, sizes, commits, and hashes are the real repo contents (verified
-/// against HF on 2026-10-16; each commit was `main` then). The `whisper-small`
-/// entry keeps the exact anchor the spike and preview CI proved.
+/// The curated GGUF catalog. Each model points to a publisher's pinned file.
+/// The existing `whisper-small` entry keeps the anchor used by preview CI.
 static CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf",
@@ -129,6 +124,21 @@ static CATALOG: &[CatalogEntry] = &[
         name: "Parakeet TDT 0.6B v3",
         description: "Fast multilingual model with automatic language detection",
         size_bytes: 485_000_000,
+        supports_prompt: false,
+        supports_language: false,
+        recommended: false,
+    },
+    CatalogEntry {
+        id: "oruk/oruk-fourier-2b@8bcce21695e4ba13569c48de6cedffcb8a7576f5/Fourier-2B-Q8_0.gguf",
+        coord: ModelCoord {
+            repo_id: "oruk/oruk-fourier-2b",
+            commit: "8bcce21695e4ba13569c48de6cedffcb8a7576f5",
+            filename: "Fourier-2B-Q8_0.gguf",
+            sha256: "6a7c419bd571f7b0e21da2d5ab1e3a1a3938a83470d622be57427af98f322981",
+        },
+        name: "Oruk Fourier 2B (English)",
+        description: "Non-commercial (CC BY-NC 4.0)",
+        size_bytes: 2_185_030_848,
         supports_prompt: false,
         supports_language: false,
         recommended: false,
@@ -479,6 +489,7 @@ mod id_tests {
                 "handy-computer/whisper-tiny-gguf@main/whisper-tiny-Q8_0.gguf",
                 "handy-computer/whisper-small-gguf@main/whisper-small-Q4_K_M.gguf",
                 "handy-computer/parakeet-tdt-0.6b-v3-gguf@main/parakeet-tdt-0.6b-v3-Q4_K_M.gguf",
+                "oruk/oruk-fourier-2b@8bcce21695e4ba13569c48de6cedffcb8a7576f5/Fourier-2B-Q8_0.gguf",
             ]
         );
     }
