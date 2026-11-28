@@ -4,11 +4,9 @@
 // rejection (for example the named held-storage failure when a suspended
 // Safari tab retains the OPFS access handles) blanks the page before any
 // Svelte error surface can mount. The Safari gate falsified exactly this on
-// 2026-07-18. The contract: `runtime.open()` is asynchronous and resolves
-// only with a ready handle, and every fallible acquisition runs inside a
-// mounted observer. Whispering synchronously creates one
-// application-opening promise in a mounted component and renders it through a
-// stable `{#await}` boundary. Its library modules remain inert.
+// 2026-07-18. The contract: Whispering's library modules are inert when
+// imported, and everything that can fail (reading the settings, opening a
+// microphone) runs from a mounted component, which can show the failure.
 //
 // This is a tripwire, not a parser: it flags `await` at module scope using a
 // brace/paren depth heuristic over the app lib trees. Top-level await inside
@@ -19,7 +17,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOTS = ['apps/whispering-old/src/lib'];
+const ROOTS = ['apps/whispering/src/lib'];
 
 function* walk(dir: string): Generator<string> {
 	for (const entry of readdirSync(dir)) {

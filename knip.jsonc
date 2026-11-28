@@ -11,9 +11,7 @@
 			"project": ["scripts/**/*.ts", ".agents/skills/**/*.ts"]
 		},
 		"apps/whispering": {
-			"entry": ["scripts/*.ts", "src/**/*.test.ts"],
-			// svelte-dom.test-support.ts loads jsdom with require(Bun.resolveSync(...)).
-			"ignoreDependencies": ["jsdom"]
+			"entry": ["src/**/*.test.ts"]
 		},
 		"packages/ui": {
 			"entry": ["scripts/*.ts"],

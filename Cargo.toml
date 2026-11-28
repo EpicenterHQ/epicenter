@@ -8,7 +8,6 @@
 resolver = "2"
 members = [
     "apps/whispering/src-tauri",
-    "apps/whispering-old/src-tauri",
     "apps/whispering/packages/tauri-plugin-epicenter-recorder",
     "apps/whispering/packages/transcription",
     "apps/whispering/packages/whispering-files",
