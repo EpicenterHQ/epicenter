@@ -1,144 +1,152 @@
-//! Whispering's desktop app: one window over Whispering's folder,
-//! `data/` in the app's local data directory unless the person picked
-//! another in the folder dialog. The page reads and writes the folder
-//! through Whispering's own file commands (`files.rs`), which check each
-//! folder against `tauri-plugin-fs`'s scope: the default folder (allowed
-//! here at start) and the one the dialog granted
-//! (`tauri-plugin-persisted-scope` restores it at each start). The page
-//! holds none of the file system plugin's commands, and Rust keeps no
-//! folder setting. Every file is written inside the folder: a
-//! take at its own path from its first second
-//! (`tauri-plugin-epicenter-recorder`), and a note through a temporary file
-//! beside it (`whispering-files`). It transcribes on this computer (`tauri-plugin-epicenter-transcription`),
-//! sends a provider's requests from the page through `tauri-plugin-http`
-//! with a key it reads from the Keychain (`secrets.rs`), and starts and stops
-//! a recording from a global shortcut (`shortcut.rs`). A second launch
-//! focuses the open window (`tauri-plugin-single-instance`), so the app is
-//! the folder's one writer.
+//! Whispering's desktop window. Recordings live in `recordings/` in the
+//! app's local data directory, which the person cannot move: the native
+//! recorder writes `<id>.webm` there from the first second, and the page
+//! writes `<id>.md` beside it through `tauri-plugin-fs`. Both check the file
+//! system scope, which allows only that directory. A second launch focuses
+//! the open window, so the app is the directory's one writer.
+//!
+//! Requests to the person's servers run here too (`servers.rs`), with each
+//! server's API key read from the Keychain (`keys.rs`), and the global shortcuts the page
+//! names reach it from any app (`shortcuts.rs`). A second, small window floats the
+//! pill over every app while a take is under way (`pill.rs`). A recording
+//! can also be transcribed on this computer (`local.rs`), and so can any
+//! audio file from a terminal, with no window (`cli.rs`).
 
 // Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autostart;
+mod cli;
 mod files;
-mod secrets;
-mod shortcut;
+mod keys;
+mod local;
+mod media;
+mod paste;
+mod pill;
+mod servers;
+mod shortcuts;
 
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_fs::FsExt;
 
-include!("command_names.rs");
-
-/// The window's label, which the capability selects (`whispering:*`).
-const WINDOW: &str = "whispering:main";
-
-/// The default folder, inside the app's local data directory.
-const DEFAULT_FOLDER: &str = "data";
+/// The window's label, which the capability selects.
+pub(crate) const WINDOW: &str = "main";
 
 fn main() {
-    log::set_logger(&STDERR)
-        .map(|()| log::set_max_level(log::LevelFilter::Info))
-        .expect("no logger is installed before this one");
+    // `--transcribe-file` and `--list-models` answer and exit; no window opens (`cli.rs`).
     let context = tauri::generate_context!();
-    let app = tauri::Builder::default()
+    match cli::parse(std::env::args().skip(1)) {
+        Ok(None) => {}
+        Ok(Some(request)) => tauri_plugin_epicenter_transcription::exit(cli::run(
+            request,
+            &context.config().identifier,
+        )),
+        Err(message) => {
+            eprintln!("{message}");
+            tauri_plugin_epicenter_transcription::exit(2)
+        }
+    }
+    let builder = tauri::Builder::default();
+    // The pill's window is a panel that never activates the app.
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+    let app = builder
         // First, so a second launch stops before anything else starts.
         .plugin(tauri_plugin_single_instance::init(|app, _, _| focus(app)))
         .plugin(tauri_plugin_fs::init())
-        // After the file system plugin, whose scope it restores.
-        .plugin(tauri_plugin_persisted_scope::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_epicenter_recorder::init())
-        .plugin(tauri_plugin_epicenter_transcription::init())
-        .plugin(shortcut::listener())
-        .setup(|app| {
-            let handle = app.handle().clone();
-            if let Err(error) = start(&handle) {
-                quit_with(&handle, &error);
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![autostart::HIDDEN]),
+        ))
+        .manage(shortcuts::Held::default())
+        .on_window_event(|window, event| {
+            if window.label() != WINDOW {
+                return;
             }
+            let WindowEvent::CloseRequested { api, .. } = event else {
+                return;
+            };
+            // On a Mac, closing the window leaves the app in the Dock with
+            // its shortcuts working, as closing a window does there. The
+            // page lives on in the hidden window, so a take under way goes
+            // on. Elsewhere there is no Dock to bring it back from, so
+            // closing the window quits, pill and all.
+            if cfg!(target_os = "macos") {
+                api.prevent_close();
+                let _ = window.hide();
+            } else {
+                window.app_handle().exit(0);
+            }
+        })
+        .plugin(tauri_plugin_epicenter_recorder::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_epicenter_transcription::init())
+        .setup(|app| {
+            start(app.handle())?;
+            pill::open(app.handle())
+                .map_err(|error| format!("The pill's window could not open: {error}"))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            secrets::secret_get,
-            secrets::secret_set,
-            shortcut::set_shortcut,
             files::files_read,
-            files::files_read_many,
-            files::files_write,
-            files::files_list,
-            files::files_remove,
-            files::files_change_folder,
-            files::folder_git,
+            files::files_size,
+            files::files_reveal,
+            keys::key_set,
+            keys::key_exists,
+            servers::transcribe,
+            servers::complete,
+            local::transcribe_local,
+            pill::pill_show,
+            shortcuts::shortcuts_set,
+            autostart::autostart_enabled,
+            autostart::autostart_set,
+            media::pause_playback,
+            media::resume_playback,
+            paste::paste_allowed,
+            paste::paste_ask,
+            paste::paste
         ])
         .build(context)
         .expect("Whispering could not start");
-    // Exits without C++ static finalizers on macOS, which can race a
-    // resident model (the transcription plugin's README).
-    tauri_plugin_epicenter_transcription::run(app, |_, _| {});
+    // On a Mac this exits without running C++ static finalizers, which can
+    // race a model still loaded on the GPU (the transcription plugin's README).
+    tauri_plugin_epicenter_transcription::run(app, |app, event| {
+        // A click on the Dock icon brings back a window that was closed.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            focus(app);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
+    });
 }
 
-/// Make the default folder, allow it, then open the window.
-///
-/// The scope is the grant every file command checks. A capability's file
-/// system grant would count only inside the file system plugin's own
-/// commands, so the default folder is allowed here; one the person picked
-/// is restored by the persisted-scope plugin.
+/// Make the data directory, allow it in the file system scope, then open
+/// the window. The recorder records into a folder the scope allows, and the
+/// file system plugin's commands check the same scope. The asset protocol,
+/// which the page's audio player streams from, may read `recordings/` only.
 fn start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let paths = app.path();
-    let local_data = paths.app_local_data_dir().map_err(|error| {
-        format!("The system did not say where Whispering keeps its files: {error}")
-    })?;
-    let folder = local_data.join(DEFAULT_FOLDER);
+    let folder = files::recordings_dir(app)?;
     std::fs::create_dir_all(&folder)
         .map_err(|error| format!("{} could not be made: {error}", folder.display()))?;
-    app.manage(files::Folders::default());
+    let data = folder.parent().unwrap_or(&folder).to_path_buf();
     app.fs_scope()
-        .allow_directory(&folder, true)
+        .allow_directory(&data, true)
+        .map_err(|error| format!("{} could not be opened: {error}", data.display()))?;
+    app.asset_protocol_scope()
+        .allow_directory(&folder, false)
         .map_err(|error| format!("{} could not be opened: {error}", folder.display()))?;
-    let webview_data = paths
-        .app_cache_dir()
-        .map_err(|error| {
-            format!("The system did not say where Whispering keeps its cache: {error}")
-        })?
-        .join("webview");
     WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::default())
         .title("Whispering")
-        .inner_size(1100.0, 760.0)
+        // Opened by the system at login, it waits out of sight.
+        .visible(!std::env::args().any(|arg| arg == autostart::HIDDEN))
+        .inner_size(900.0, 720.0)
         .min_inner_size(400.0, 400.0)
-        .data_directory(webview_data)
         .build()
         .map_err(|error| format!("The window could not open: {error}"))?;
     Ok(())
-}
-
-/// Writes log records to stderr: Whispering's own crates' from `Info`, and
-/// every other crate's from `Warn`. Without a logger every `log` call is
-/// dropped.
-struct Stderr;
-
-static STDERR: Stderr = Stderr;
-
-impl log::Log for Stderr {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        let ours = ["whispering", "tauri_plugin_epicenter"]
-            .iter()
-            .any(|prefix| metadata.target().starts_with(prefix));
-        metadata.level()
-            <= if ours {
-                log::Level::Info
-            } else {
-                log::Level::Warn
-            }
-    }
-
-    fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
-            eprintln!("{} {}: {}", record.level(), record.target(), record.args());
-        }
-    }
-
-    fn flush(&self) {}
 }
 
 /// Bring the open window forward, for a second launch.
@@ -147,127 +155,5 @@ fn focus<R: Runtime>(app: &AppHandle<R>) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
-    }
-}
-
-/// Say why Whispering could not start, with only Quit.
-fn quit_with<R: Runtime>(app: &AppHandle<R>, error: &str) {
-    let exit = app.clone();
-    app.dialog()
-        .message(error)
-        .title("Whispering could not start")
-        .kind(MessageDialogKind::Error)
-        .buttons(MessageDialogButtons::OkCustom("Quit".into()))
-        .show(move |_| exit.exit(1));
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::{json, Value};
-
-    use super::*;
-
-    fn read(text: &str) -> Value {
-        serde_json::from_str(text).unwrap()
-    }
-
-    /// The build script declares the Keychain commands, `set_shortcut`, and
-    /// the file commands, and nothing else.
-    #[test]
-    fn the_declared_commands_are_the_secrets_the_shortcut_and_the_files() {
-        assert_eq!(
-            COMMANDS,
-            [
-                "secret_get",
-                "secret_set",
-                "set_shortcut",
-                "files_read",
-                "files_read_many",
-                "files_write",
-                "files_list",
-                "files_remove",
-                "files_change_folder",
-                "folder_git",
-            ]
-        );
-    }
-
-    /// The bundle is `so.epicenter.whispering`, and it loads the one build
-    /// the web serves. The development configuration's
-    /// identifier is the production one with `.dev`, so it has its own local
-    /// data directory and folder. Neither configures the file system plugin:
-    /// every path the file commands check is a plain name, which the scope's
-    /// default (a leading dot only matched literally) allows.
-    #[test]
-    fn whispering_is_its_own_app() {
-        let config = read(include_str!("../tauri.conf.json"));
-        assert_eq!(config["identifier"], "so.epicenter.whispering");
-        assert_eq!(config["productName"], "Whispering");
-        assert_eq!(config["build"]["frontendDist"], "../build");
-        assert!(config.get("plugins").is_none());
-        let dev = read(include_str!("../tauri.dev.conf.json"));
-        assert_eq!(dev["identifier"], "so.epicenter.whispering.dev");
-        assert_eq!(dev["productName"], "Whispering Dev");
-        for configuration in [&config, &dev] {
-            assert_eq!(
-                configuration["app"]["security"]["capabilities"],
-                json!(["whispering"])
-            );
-        }
-    }
-
-    /// The window reads and writes files only through Whispering's own
-    /// commands, which check the scope (no capability names a folder, and
-    /// none grants a file system plugin command), picks a folder, sends
-    /// requests to any http or https address, records, transcribes and
-    /// administers local models, hears the global shortcut, and calls
-    /// exactly the commands the build script declares.
-    #[test]
-    fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
-        let capability = read(include_str!("../capabilities/whispering.json"));
-        assert_eq!(capability["windows"], json!(["whispering:*"]));
-        assert_eq!(capability["local"], true);
-        let mut expected: Vec<Value> = [
-            "core:path:default",
-            "core:event:allow-listen",
-            "core:event:allow-unlisten",
-            "dialog:allow-open",
-            "opener:allow-reveal-item-in-dir",
-        ]
-        .map(|permission| json!(permission))
-        .to_vec();
-        expected.push(json!({
-            "identifier": "http:default",
-            "allow": [{ "url": "https://*" }, { "url": "http://*" }]
-        }));
-        expected.extend(
-            [
-                "epicenter-recorder:default",
-                "epicenter-transcription:allow-list-inference-models",
-                "epicenter-transcription:allow-transcribe-audio",
-                "epicenter-transcription:allow-list-models",
-                "epicenter-transcription:allow-download-model",
-                "epicenter-transcription:allow-reveal-model",
-                "epicenter-transcription:allow-remove-model",
-                "epicenter-transcription:allow-get-unload-policy",
-                "epicenter-transcription:allow-set-unload-policy",
-            ]
-            .map(|permission| json!(permission)),
-        );
-        expected.extend(
-            COMMANDS
-                .iter()
-                .map(|command| json!(format!("allow-{}", command.replace('_', "-")))),
-        );
-        assert_eq!(capability["permissions"], json!(expected));
-        let text = include_str!("../capabilities/whispering.json");
-        assert!(
-            !text.contains("$APP") && !text.contains("$HOME"),
-            "no folder is named"
-        );
-        assert!(
-            !text.contains("\"fs:"),
-            "no file system plugin command is granted"
-        );
     }
 }

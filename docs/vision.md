@@ -208,13 +208,13 @@ author's apps and do not ship here.
   Todoist. Todoist stays near empty, and Tasks is the list.
 - **A recording on a plane.** Whispering on your laptop records, transcribes,
   and copies the text with no network, and keeps each recording as files in its own
-  folder ([Whispering's decisions](../apps/whispering/README.md#the-folder)). It
+  data directory ([what Whispering stores](../apps/whispering/README.md#what-it-stores)). It
   needs no Epicenter and no account.
 - **A voice reply from the phone.** You record a reply in an app's page. Its
   action hands the audio to a speech program installed on your computer, run
   as a command with the file's path, and reads the text it prints. Handy does
-  this today; Whispering's command line is planned
-  ([the backlog](../BACKLOG.md#finish-the-whispering-rewrite)).
+  this today; Whispering's command line can transcribe a file, and the switch to it is next
+  ([the backlog](../BACKLOG.md#whispering-as-a-transcription-engine)).
 
 ## The pieces
 

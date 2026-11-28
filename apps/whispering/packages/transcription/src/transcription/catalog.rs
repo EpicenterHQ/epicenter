@@ -10,10 +10,9 @@
 //! `"handy-computer/whisper-small-gguf@main/whisper-small-Q4_K_M.gguf"`. That id
 //! is an opaque catalog key, frozen once shipped: every transcript names it.
 //! It is not a coordinate; the `@main` in shipped ids predates pinning and no
-//! longer says what is downloaded. The app's model settings name it when they
-//! administer models. Inference lists cached IDs and passes the selected ID to
-//! `transcribe_audio`. An unknown ID is refused
-//! rather than parsed. (Custom drop-in GGUF is a later earned feature, not a
+//! longer says what is downloaded. The app names it when it administers a
+//! model and on every transcription (`ModelCache::transcribe_bytes`). An
+//! unknown ID is refused rather than parsed. (Custom drop-in GGUF is a later earned feature, not a
 //! compatibility path.)
 //!
 //! Storage is the shared Hugging Face cache (`~/.cache/huggingface/hub`,
@@ -469,7 +468,7 @@ pub async fn remove_model<R: tauri::Runtime>(
 mod id_tests {
     use super::*;
 
-    /// The ids named on transcripts and in `settings.md`. A change
+    /// The ids named on transcripts and in the app's `settings.json`. A change
     /// here strands every saved choice, so it must be deliberate.
     #[test]
     fn shipped_model_ids_never_change() {

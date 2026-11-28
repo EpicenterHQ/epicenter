@@ -9,11 +9,11 @@
 //! second device may have neither the bytes nor compatible hardware, so this
 //! must never synchronize.
 //!
-//! This is ownership, not a mirror of a frontend value. Whispering refuses a
-//! copy of the page's choices pushed into Rust, because such a copy went stale
-//! (see Decisions, Transcription, in `apps/whispering/README.md`). Here there
-//! is exactly one copy and exactly one writer, so that staleness cannot appear.
-//! Language and prompt remain application-owned and still travel per call.
+//! This is ownership, not a mirror of a frontend value: a copy of the page's
+//! choices pushed into Rust goes stale. Here there is exactly one copy and
+//! exactly one writer. No command reads or sets the policy; a host does both
+//! through `ModelCache::settings`. The model, language and prompt remain
+//! application-owned and travel per call.
 
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -69,8 +69,8 @@ pub struct LocalTranscriptionSettings {
 impl LocalTranscriptionSettings {
     /// Load the settings file, falling back to the default unload policy when
     /// it is missing or unreadable. A corrupt file
-    /// is a warning, not a startup failure: the user re-picks in model settings, and the
-    /// next successful write replaces it.
+    /// is a warning, not a startup failure: the default applies, and the next
+    /// successful write replaces it.
     pub fn load(path: PathBuf) -> Self {
         let state = match std::fs::read_to_string(&path) {
             Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|error| {
@@ -204,7 +204,7 @@ mod tests {
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
-    /// The settings file is rewritten on every administration act, so replacing
+    /// The settings file is rewritten on every change, so replacing
     /// an existing file has to keep working, not just creating one.
     #[test]
     fn successive_writes_replace_the_file_and_leave_no_litter() {
@@ -265,8 +265,8 @@ mod tests {
 
     #[test]
     fn unload_policy_wire_tags_match_the_frontend_values() {
-        // The frontend persists these exact strings; a rename here would silently
-        // reset every user's policy to the default on read.
+        // The settings file holds these exact strings; a rename here would
+        // silently reset every user's policy to the default on read.
         let cases = [
             (UnloadPolicy::Never, "\"never\""),
             (UnloadPolicy::Immediately, "\"immediately\""),

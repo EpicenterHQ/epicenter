@@ -3,25 +3,18 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
+	"sideEffects": false,
+	"description": "Generated TypeScript commands and types for Whispering's native transcription plugin.",
 	"exports": {
-		".": "./guest-js/local-speech.ts",
-		"./bindings": "./guest-js/bindings.gen.ts",
-		"./local-models": "./guest-js/local-models.svelte.ts",
-		"./local-model-administration": "./guest-js/LocalModelAdministration.svelte"
+		"./bindings": "./guest-js/bindings.gen.ts"
 	},
 	"scripts": {
-		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate guest-js"
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@tauri-apps/api": "catalog:",
-		"@epicenter/ui": "workspace:*",
-		"svelte": "catalog:"
+		"@tauri-apps/api": "catalog:"
 	},
 	"devDependencies": {
-		"@epicenter/ai": "workspace:*",
-		"@types/bun": "catalog:",
-		"svelte-check": "catalog:",
 		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"

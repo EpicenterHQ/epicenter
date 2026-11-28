@@ -26,10 +26,9 @@ Pick the tier and copy its example.
 | Tier | Extends | Copy |
 | --- | --- | --- |
 | Bun library | `tsconfig.base.json` | `packages/app/tsconfig.json` |
-| Node library | `tsconfig.base.json` | `apps/whispering/packages/vite-config/tsconfig.json` |
 | Browser or Svelte library | `tsconfig.dom.json` | `packages/ai/tsconfig.json` |
 | Bun scripts | `tsconfig.base.json` | `scripts/tsconfig.json` |
-| SvelteKit app | base, then `./.svelte-kit/tsconfig.json` | `apps/whispering/tsconfig.json` |
+| SvelteKit app | base, then `$app/tsconfig` | `apps/whispering/tsconfig.json` |
 | Astro app | base, then `astro/tsconfigs/strict` | `apps/landing/tsconfig.json` |
 
 A generated or framework config goes last in the `extends` array so its settings win. Never hand-edit a generated config.
@@ -40,7 +39,7 @@ The base sets `types: []` so TypeScript does not load every `@types` package in 
 
 ## `include` replaces, it does not merge
 
-A leaf `include` replaces the inherited one. In a SvelteKit app, do not set `include`, or you drop the generated `ambient.d.ts` and `$types` files. Set `include` only to narrow scope for a real reason.
+A leaf `include` replaces the inherited one. The SvelteKit app sets `include` to `["src", "*.ts"]` and loads SvelteKit's generated types through `"$app/types"` in `types`; keep both when you edit it. Elsewhere, set `include` only to narrow scope for a real reason.
 
 ## Adding a package
 

@@ -1,5 +1,5 @@
 //! The plugin driven through the mock runtime: where settings live, lazy
-//! cache creation, and what the commands refuse before any model runs.
+//! cache creation, and what the commands refuse.
 
 use super::*;
 use serde_json::{json, Value};
@@ -101,36 +101,11 @@ fn the_accessor_reports_a_missing_plugin() {
 }
 
 #[test]
-fn a_window_without_the_permission_cannot_transcribe() {
+fn a_window_without_the_permission_cannot_remove_a_model() {
     let fixture = fixture_with(false);
     let main = window(&fixture.app, "main");
-    let refused = invoke(
-        &main,
-        "transcribe_audio",
-        json!({ "modelId": "unknown-model", "audio": "bm90IGF1ZGlv", "hints": {} }),
-    )
-    .unwrap_err();
+    let refused = invoke(&main, "remove_model", json!({ "modelId": "unknown-model" })).unwrap_err();
     assert!(refused.to_string().contains("not allowed"), "{refused}");
-}
-
-#[test]
-fn uploaded_audio_is_refused_before_any_model_runs() {
-    let fixture = fixture();
-    let main = window(&fixture.app, "main");
-    let upload = |model: &str, audio: &str| {
-        invoke(
-            &main,
-            "transcribe_audio",
-            json!({ "modelId": model, "audio": audio, "hints": {} }),
-        )
-        .unwrap_err()
-    };
-    // Not base64: nothing to decode.
-    let refused = upload("unknown-model", "not base64!");
-    assert_eq!(name(&refused), "AudioReadError", "{refused}");
-    // An unknown model is refused before the bytes are decoded as audio.
-    let refused = upload("unknown-model", "bm90IGF1ZGlv");
-    assert_eq!(name(&refused), "ModelUnavailable", "{refused}");
 }
 
 #[test]

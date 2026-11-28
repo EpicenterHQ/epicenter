@@ -1,704 +1,153 @@
-//! Whispering's own file commands, one per operation of the page's `Files`
-//! (`tauriFiles`), plus "Change…" and the folder's Git check.
-//! Rust moves bytes; the page reads and writes what they mean.
-//!
-//! Each command takes the folder as an absolute path and checks it against
-//! the app's file system scope (`tauri-plugin-fs`): the default folder the
-//! shell allows at start, or one the person picked in the folder dialog,
-//! which `tauri-plugin-persisted-scope` restores. A page cannot widen that
-//! scope; it holds none of the file system plugin's commands. The folder
-//! is granted with everything under it, and the path inside it must pass
-//! the plain-name rule with no link on its way (`whispering_files`), so a
-//! path that passes stays under the granted folder.
-//!
-//! A write goes to a hidden temporary file beside its target, flushed and
-//! renamed over it (`whispering_files::beside`). The first
-//! command on a folder in a run removes what a crash left of those files
-//! there, before anything writes it (`Folders`). While "Change…" moves a
-//! folder, and after it has moved the recordings out, every command on
-//! that folder is refused. Every command runs its disk work, the scope
-//! check included, off the async runtime.
-//!
-//! A failure crosses as the page's `FilesError`,
-//! `{ name: "NotFound" | "Refused" | "Io", message }`.
+//! Whispering's folder on the desktop: the app's local data directory. The
+//! page lists, writes and removes its files through `tauri-plugin-fs`, and
+//! reads them here (`files_read`), every path in one call: a person can have
+//! 15,000 notes, and one call each would be 15,000 round trips. It also
+//! says how much a directory holds (`files_size`) and shows the folder in
+//! the system's file manager (`files_reveal`).
 
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, RwLock};
 
-use percent_encoding::percent_decode_str;
-use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::{AppHandle, Manager, Runtime};
-use tauri_plugin_fs::FsExt;
-use whispering_files::{Changed, Entry, FilesError, FolderGit};
 
-/// The folders the commands of this run have used.
-#[derive(Default)]
-pub struct Folders {
-    /// Each folder whose leftovers were removed, by the path as given and as
-    /// the disk resolves it, so one folder reached by two spellings (a link,
-    /// or another case on macOS) is swept once.
-    swept: Mutex<HashSet<PathBuf>>,
-    /// Folders every command refuses, by the path as the page gives it: the
-    /// one "Change…" is moving, and one it moved the recordings out of. A
-    /// command holds the read lock for all its work, so a change, which
-    /// takes the write lock to add a folder, waits for the commands under
-    /// way to finish and then refuses the rest.
-    closed: RwLock<HashSet<PathBuf>>,
-}
-
-/// The folder at the absolute path `folder`, when the scope allows it.
-fn granted<R: Runtime>(app: &AppHandle<R>, folder: &str) -> Result<PathBuf, FilesError> {
-    let path = PathBuf::from(folder);
-    if !path.is_absolute() {
-        return Err(FilesError::refused(format!(
-            "{folder:?} is not an absolute path"
-        )));
-    }
-    if !app
-        .try_fs_scope()
-        .is_some_and(|scope| scope.is_allowed(&path))
-    {
-        return Err(FilesError::refused(format!(
-            "{} is not in a folder this app may use",
-            path.display()
-        )));
-    }
-    Ok(path)
-}
-
-/// Run `work` on the granted `folder` off the async runtime, unless
-/// "Change…" has closed it, and keep a change from starting until it is
-/// done. The first time a run opens the folder, the temporary files a crash
-/// left there are removed first (`whispering_files::remove_leftovers`),
-/// under a lock every command takes, so no write of this run is using one.
-/// A failure to remove them is logged: a leftover is never read, and the
-/// next run tries again.
-async fn in_folder<R: Runtime, T: Send + 'static>(
-    app: &AppHandle<R>,
-    folder: String,
-    work: impl FnOnce(&Path) -> Result<T, FilesError> + Send + 'static,
-) -> Result<T, FilesError> {
-    let app = app.clone();
-    blocking(move || {
-        let path = granted(&app, &folder)?;
-        let folders = app.state::<Folders>();
-        let closed = folders
-            .closed
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if closed.contains(&path) {
-            return Err(FilesError::refused(format!(
-                "{} is being changed or was moved, so nothing in it was touched",
-                path.display()
-            )));
-        }
-        sweep(&folders, &path);
-        work(&path)
+/// The app's local data directory, which holds `settings.json` and `recordings/`.
+pub fn data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    app.path().app_local_data_dir().map_err(|error| {
+        format!("The system did not say where Whispering keeps its files: {error}")
     })
-    .await
 }
 
-/// Remove what a crash left in `folder`, once per run.
-fn sweep(folders: &Folders, folder: &Path) {
-    let mut swept = folders
-        .swept
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if swept.contains(folder) {
-        return;
-    }
-    let canonical = std::fs::canonicalize(folder).ok();
-    if canonical.as_ref().is_none_or(|c| !swept.contains(c)) {
-        if let Err(error) = whispering_files::remove_leftovers(folder) {
-            log::warn!(
-                "Temporary files in {} were not removed: {error}",
-                folder.display()
-            );
-        }
-    }
-    swept.insert(folder.to_path_buf());
-    swept.extend(canonical);
+/// The `recordings/` folder, where the recorder writes each take.
+pub fn recordings_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+    data_dir(app).map(|data| data.join("recordings"))
 }
 
-/// Run `work` off the async runtime.
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, FilesError> + Send + 'static,
-) -> Result<T, FilesError> {
-    tauri::async_runtime::spawn_blocking(work)
-        .await
-        .map_err(|error| FilesError::io(error.to_string()))?
-}
-
-/// The bytes of the file `path` in `folder`, raw. A missing file is
-/// `NotFound`.
+/// The text of each file of `paths` in the folder that is there, by path; a
+/// missing one is left out.
 #[tauri::command]
 pub async fn files_read<R: Runtime>(
     app: AppHandle<R>,
-    folder: String,
-    path: String,
-) -> Result<Response, FilesError> {
-    let bytes = in_folder(&app, folder, move |folder| {
-        whispering_files::read(folder, &path)
-    })
-    .await?;
-    Ok(Response::new(bytes))
-}
-
-/// The files at `paths` in `folder`, raw, in one buffer: a `u32`
-/// little-endian count, then each path's length in the order asked as a
-/// `u32` little-endian, or `0xFFFFFFFF` for a missing file, then the
-/// present files' bytes in order. A path the rule refuses refuses the call.
-#[tauri::command]
-pub async fn files_read_many<R: Runtime>(
-    app: AppHandle<R>,
-    folder: String,
     paths: Vec<String>,
-) -> Result<Response, FilesError> {
-    let buffer = in_folder(&app, folder, move |folder| {
-        whispering_files::read_many(folder, &paths)
-    })
-    .await?;
-    Ok(Response::new(buffer))
+) -> Result<BTreeMap<String, String>, String> {
+    let dir = data_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || read(&dir, &paths))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
-/// The value of the header `name`, percent-decoded as JavaScript's
-/// `encodeURIComponent` encodes it.
-fn header(request: &Request<'_>, name: &str) -> Result<String, FilesError> {
-    let value = request
-        .headers()
-        .get(name)
-        .ok_or_else(|| FilesError::refused(format!("the {name} header is missing")))?
-        .to_str()
-        .map_err(|_| FilesError::refused(format!("the {name} header is not text")))?;
-    percent_decode_str(value)
-        .decode_utf8()
-        .map(|decoded| decoded.into_owned())
-        .map_err(|_| FilesError::refused(format!("the {name} header is not UTF-8")))
-}
-
-/// Replace the file named by the `x-path` header in the folder named by
-/// `x-folder` (both percent-encoded) with the request's raw body, written
-/// and flushed beside the target, then renamed over it.
+/// How many bytes the files directly in `dir`, a directory in the folder,
+/// hold. A directory that is not there holds none.
 #[tauri::command]
-pub async fn files_write<R: Runtime>(
-    app: AppHandle<R>,
-    request: Request<'_>,
-) -> Result<(), FilesError> {
-    let folder = header(&request, "x-folder")?;
-    let path = header(&request, "x-path")?;
-    let InvokeBody::Raw(bytes) = request.body() else {
-        return Err(FilesError::refused("a write's body must be raw bytes"));
+pub async fn files_size<R: Runtime>(app: AppHandle<R>, dir: String) -> Result<u64, String> {
+    if !is_plain(&dir) {
+        return Err(format!(
+            "{dir:?} is not a plain path in Whispering's folder"
+        ));
+    }
+    let dir = data_dir(&app)?.join(dir);
+    tauri::async_runtime::spawn_blocking(move || size(&dir))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// The bytes of the files directly in `dir`; a file that goes away while
+/// they are counted is left out.
+pub fn size(dir: &Path) -> Result<u64, String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(format!("{} could not be read: {error}", dir.display())),
     };
-    let bytes = bytes.clone();
-    in_folder(&app, folder, move |folder| {
-        whispering_files::write(folder, &path, &bytes)
-    })
-    .await
+    Ok(entries
+        .filter_map(|entry| entry.ok()?.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum())
 }
 
-/// The files in the directory `dir` in `folder` (the folder itself for
-/// `""`), as `{ name, size, modifiedMs }` sorted by name. A missing
-/// directory lists as empty; a missing folder is `NotFound`.
+/// Show Whispering's folder in the system's file manager.
 #[tauri::command]
-pub async fn files_list<R: Runtime>(
-    app: AppHandle<R>,
-    folder: String,
-    dir: String,
-) -> Result<Vec<Entry>, FilesError> {
-    in_folder(&app, folder, move |folder| {
-        whispering_files::list(folder, &dir)
-    })
-    .await
+pub fn files_reveal<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = data_dir(&app)?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|error| format!("The folder could not be opened: {error}"))
 }
 
-/// Remove the file `path` in `folder`; one that is not there is not a
-/// failure.
-#[tauri::command]
-pub async fn files_remove<R: Runtime>(
-    app: AppHandle<R>,
-    folder: String,
-    path: String,
-) -> Result<(), FilesError> {
-    in_folder(&app, folder, move |folder| {
-        whispering_files::remove(folder, &path)
+/// Whether `path` is a plain path in the folder: `/`-separated parts of
+/// letters, digits, `-`, `_` and `.`, none empty and none starting with a
+/// dot, so `..`, a hidden file and an absolute path are refused. The page
+/// checks more strictly (`checkPath` in `files/files.ts`); this keeps a read
+/// inside the folder whatever it is asked.
+fn is_plain(path: &str) -> bool {
+    path.split('/').all(|part| {
+        !part.is_empty()
+            && !part.starts_with('.')
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
     })
-    .await
 }
 
-/// "Change…": move the recordings from `from` into `to` when `to` is empty
-/// (`"moved"`), or open `to` as it is when it is a Whispering folder
-/// (`"opened"`). Anything else is refused, and two folders are never
-/// merged. Both folders must be granted. `to` is not swept here: the first
-/// command on it after the page loads it does that, and a folder this
-/// refuses is left as it was.
-///
-/// `from` is closed first, which waits for the commands under way on it;
-/// while the change runs every command on it is refused, and after a move
-/// it stays closed for the run, so nothing written late lands in the folder
-/// the recordings left.
-#[tauri::command]
-pub async fn files_change_folder<R: Runtime>(
-    app: AppHandle<R>,
-    from: String,
-    to: String,
-) -> Result<Changed, FilesError> {
-    let app = app.clone();
-    blocking(move || {
-        let (from, to) = (granted(&app, &from)?, granted(&app, &to)?);
-        let folders = app.state::<Folders>();
-        let close = |open: bool| {
-            let mut closed = folders
-                .closed
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if open {
-                closed.remove(&from)
-            } else {
-                closed.insert(from.clone())
+/// Read `paths` in `dir`. A file that is not UTF-8 is read with its bad
+/// bytes replaced, so one damaged note does not hide the rest.
+pub fn read(dir: &Path, paths: &[String]) -> Result<BTreeMap<String, String>, String> {
+    let mut read = BTreeMap::new();
+    for path in paths {
+        if !is_plain(path) {
+            return Err(format!(
+                "{path:?} is not a plain path in Whispering's folder"
+            ));
+        }
+        match std::fs::read(dir.join(path)) {
+            Ok(bytes) => {
+                read.insert(path.clone(), String::from_utf8_lossy(&bytes).into_owned());
             }
-        };
-        if !close(false) {
-            return Err(FilesError::refused(format!(
-                "{} is already being changed or was moved",
-                from.display()
-            )));
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{path} could not be read: {error}")),
         }
-        let changed = whispering_files::change_folder(&from, &to);
-        if !matches!(changed, Ok(Changed::Moved)) {
-            close(true);
-        }
-        changed
-    })
-    .await
-}
-
-/// Whether `folder` is inside a Git repository, and whether that repository
-/// sends `.webm` files through Git LFS: `{ repository, lfsWebm }`. Reads
-/// only; runs no Git.
-#[tauri::command]
-pub async fn folder_git<R: Runtime>(
-    app: AppHandle<R>,
-    folder: String,
-) -> Result<FolderGit, FilesError> {
-    in_folder(&app, folder, |folder| whispering_files::folder_git(folder)).await
+    }
+    Ok(read)
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
-    use tauri::http::{HeaderMap, HeaderValue};
-    use tauri::ipc::{CallbackFn, InvokeResponseBody};
-    use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
-    use tauri::utils::acl::ExecutionContext;
-    use tauri::webview::InvokeRequest;
-    use tauri::{App, WebviewWindow, WebviewWindowBuilder};
-
     use super::*;
 
-    const COMMANDS: &[&str] = &[
-        "files_read",
-        "files_read_many",
-        "files_write",
-        "files_list",
-        "files_remove",
-        "files_change_folder",
-        "folder_git",
-    ];
-
-    struct Fixture {
-        app: App<MockRuntime>,
-        window: WebviewWindow<MockRuntime>,
-        /// The granted folder.
-        folder: PathBuf,
-        /// A folder beside it that is not granted.
-        outside: PathBuf,
-        _temp: tempfile::TempDir,
-    }
-
-    fn fixture() -> Fixture {
-        let temp = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(temp.path()).unwrap();
-        let (folder, outside) = (root.join("data"), root.join("outside"));
-        for directory in [&folder, &outside] {
-            std::fs::create_dir_all(directory).unwrap();
-        }
-        let mut context = mock_context(noop_assets());
-        for command in COMMANDS {
-            context
-                .runtime_authority_mut()
-                .__allow_command(command.to_string(), ExecutionContext::Local);
-        }
-        let app = mock_builder()
-            .plugin(tauri_plugin_fs::init())
-            .manage(Folders::default())
-            .invoke_handler(tauri::generate_handler![
-                files_read,
-                files_read_many,
-                files_write,
-                files_list,
-                files_remove,
-                files_change_folder,
-                folder_git,
-            ])
-            .build(context)
-            .unwrap();
-        app.fs_scope().allow_directory(&folder, true).unwrap();
-        let window = WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
-        Fixture {
-            app,
-            window,
-            folder,
-            outside,
-            _temp: temp,
-        }
-    }
-
-    fn call(
-        fixture: &Fixture,
-        command: &str,
-        body: InvokeBody,
-        headers: HeaderMap,
-    ) -> Result<InvokeResponseBody, Value> {
-        tauri::test::get_ipc_response(
-            &fixture.window,
-            InvokeRequest {
-                cmd: command.to_string(),
-                callback: CallbackFn(0),
-                error: CallbackFn(1),
-                url: "tauri://localhost".parse().unwrap(),
-                body,
-                headers,
-                invoke_key: INVOKE_KEY.to_string(),
-            },
-        )
-    }
-
-    fn invoke(fixture: &Fixture, command: &str, args: Value) -> Result<Value, Value> {
-        call(fixture, command, InvokeBody::Json(args), HeaderMap::new())
-            .map(|body| body.deserialize::<Value>().unwrap())
-    }
-
-    fn raw(fixture: &Fixture, command: &str, args: Value) -> Result<Vec<u8>, Value> {
-        match call(fixture, command, InvokeBody::Json(args), HeaderMap::new())? {
-            InvokeResponseBody::Raw(bytes) => Ok(bytes),
-            InvokeResponseBody::Json(json) => panic!("expected raw bytes, got {json}"),
-        }
-    }
-
-    /// `encodeURIComponent`, for the characters these tests use.
-    fn encode(text: &str) -> String {
-        percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string()
-    }
-
-    fn write(fixture: &Fixture, folder: &Path, path: &str, bytes: &[u8]) -> Result<Value, Value> {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-folder",
-            HeaderValue::from_str(&encode(&folder.to_string_lossy())).unwrap(),
-        );
-        headers.insert("x-path", HeaderValue::from_str(&encode(path)).unwrap());
-        call(
-            fixture,
-            "files_write",
-            InvokeBody::Raw(bytes.to_vec()),
-            headers,
-        )
-        .map(|body| body.deserialize::<Value>().unwrap())
-    }
-
-    fn name(error: &Value) -> &str {
-        error["name"].as_str().unwrap_or_default()
-    }
-
     #[test]
-    fn the_five_operations_move_bytes_in_the_granted_folder() {
-        let fixture = fixture();
-        let folder = json!(fixture.folder);
-        let refused = invoke(
-            &fixture,
-            "files_read",
-            json!({ "folder": folder, "path": "settings.md" }),
-        )
-        .unwrap_err();
-        assert_eq!(name(&refused), "NotFound", "{refused}");
-
+    fn reads_each_file_there_and_leaves_out_one_that_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("recordings")).unwrap();
+        std::fs::write(dir.path().join("recordings/a.md"), "hello").unwrap();
+        std::fs::write(dir.path().join("settings.json"), [b'o', b'k', 0xff]).unwrap();
+        let paths = ["recordings/a.md", "recordings/b.md", "settings.json"].map(String::from);
+        let read = read(dir.path(), &paths).unwrap();
         assert_eq!(
-            write(&fixture, &fixture.folder, "recordings/k3x9.md", b"# note").unwrap(),
-            Value::Null
-        );
-        write(&fixture, &fixture.folder, "settings.md", "café".as_bytes()).unwrap();
-        let mut names: Vec<_> = std::fs::read_dir(&fixture.folder)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        names.sort();
-        assert_eq!(names, ["recordings", "settings.md"], "nothing left beside");
-        assert_eq!(
-            raw(
-                &fixture,
-                "files_read",
-                json!({ "folder": folder, "path": "settings.md" })
-            )
-            .unwrap(),
-            "café".as_bytes()
-        );
-
-        let buffer = raw(
-            &fixture,
-            "files_read_many",
-            json!({ "folder": folder, "paths": ["recordings/k3x9.md", "recordings/none.md"] }),
-        )
-        .unwrap();
-        let mut expected = Vec::new();
-        for word in [2u32, 6, u32::MAX] {
-            expected.extend_from_slice(&word.to_le_bytes());
-        }
-        expected.extend_from_slice(b"# note");
-        assert_eq!(buffer, expected);
-
-        let listed = invoke(
-            &fixture,
-            "files_list",
-            json!({ "folder": folder, "dir": "recordings" }),
-        )
-        .unwrap();
-        assert_eq!(listed[0]["name"], "k3x9.md");
-        assert_eq!(listed[0]["size"], 6);
-        assert!(listed[0]["modifiedMs"].as_u64().unwrap() > 0);
-        assert_eq!(
-            invoke(
-                &fixture,
-                "files_list",
-                json!({ "folder": folder, "dir": "" })
-            )
-            .unwrap(),
-            json!([{
-                "name": "settings.md",
-                "size": 5,
-                "modifiedMs": std::fs::metadata(fixture.folder.join("settings.md")).unwrap()
-                    .modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
-            }])
-        );
-
-        for _ in 0..2 {
-            assert_eq!(
-                invoke(
-                    &fixture,
-                    "files_remove",
-                    json!({ "folder": folder, "path": "recordings/k3x9.md" })
-                )
-                .unwrap(),
-                Value::Null
-            );
-        }
-        assert_eq!(
-            invoke(
-                &fixture,
-                "files_list",
-                json!({ "folder": folder, "dir": "recordings" })
-            )
-            .unwrap(),
-            json!([])
-        );
-    }
-
-    /// What a crash left of a save is removed by the first command on the
-    /// folder in a run, and only then: a later one is a write's to finish.
-    #[test]
-    fn the_first_command_on_a_folder_removes_what_a_crash_left() {
-        let fixture = fixture();
-        let leftover = fixture.folder.join(".settings.md.k3x9q0w1.tmp");
-        std::fs::write(&leftover, b"half").unwrap();
-        let listed = invoke(
-            &fixture,
-            "files_list",
-            json!({ "folder": fixture.folder, "dir": "" }),
-        )
-        .unwrap();
-        assert_eq!(listed, json!([]), "a temporary file is never listed");
-        assert!(!leftover.exists());
-
-        std::fs::write(&leftover, b"half").unwrap();
-        invoke(
-            &fixture,
-            "files_list",
-            json!({ "folder": fixture.folder, "dir": "" }),
-        )
-        .unwrap();
-        assert!(leftover.exists(), "removed once per run");
-
-        // The same folder spelled another way is the same folder.
-        let spelled = fixture.folder.join("..").join("data");
-        assert_ne!(spelled, fixture.folder);
-        invoke(
-            &fixture,
-            "files_list",
-            json!({ "folder": spelled, "dir": "" }),
-        )
-        .unwrap();
-        assert!(
-            leftover.exists(),
-            "one folder is swept once, however it is spelled"
+            read.into_iter().collect::<Vec<_>>(),
+            [
+                ("recordings/a.md".to_string(), "hello".to_string()),
+                ("settings.json".to_string(), "ok\u{fffd}".to_string()),
+            ]
         );
     }
 
     #[test]
-    fn a_folder_outside_the_grant_or_a_path_outside_the_rule_is_refused() {
-        let fixture = fixture();
-        std::fs::write(fixture.outside.join("settings.md"), b"theirs").unwrap();
-        let outside = json!(fixture.outside);
-        for (command, args) in [
-            (
-                "files_read",
-                json!({ "folder": outside, "path": "settings.md" }),
-            ),
-            (
-                "files_read_many",
-                json!({ "folder": outside, "paths": ["settings.md"] }),
-            ),
-            ("files_list", json!({ "folder": outside, "dir": "" })),
-            (
-                "files_remove",
-                json!({ "folder": outside, "path": "settings.md" }),
-            ),
-            ("folder_git", json!({ "folder": outside })),
-            (
-                "files_change_folder",
-                json!({ "from": fixture.folder, "to": outside }),
-            ),
-            (
-                "files_read",
-                json!({ "folder": "relative", "path": "settings.md" }),
-            ),
-            (
-                "files_read",
-                json!({ "folder": fixture.folder, "path": "../outside/settings.md" }),
-            ),
-            (
-                "files_read",
-                json!({ "folder": fixture.folder, "path": ".hidden" }),
-            ),
-            (
-                "files_read_many",
-                json!({ "folder": fixture.folder, "paths": ["a.md", "../x.md"] }),
-            ),
-            (
-                "files_list",
-                json!({ "folder": fixture.folder, "dir": "a.b" }),
-            ),
-        ] {
-            let refused = call(&fixture, command, InvokeBody::Json(args), HeaderMap::new())
-                .map(|_| ())
-                .unwrap_err();
-            assert_eq!(name(&refused), "Refused", "{command}: {refused}");
+    fn a_directory_holds_the_bytes_of_its_files_and_a_missing_one_holds_none() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("inner")).unwrap();
+        std::fs::write(dir.path().join("a.webm"), [0u8; 1000]).unwrap();
+        std::fs::write(dir.path().join("a.md"), "hello").unwrap();
+        std::fs::write(dir.path().join("inner/b.webm"), [0u8; 50]).unwrap();
+        assert_eq!(size(dir.path()).unwrap(), 1005);
+        assert_eq!(size(&dir.path().join("gone")).unwrap(), 0);
+    }
+
+    #[test]
+    fn refuses_a_path_outside_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        for path in ["../secret", "/etc/passwd", ".hidden", "a//b", "", "a/../b"] {
+            assert!(read(dir.path(), &[path.to_string()]).is_err(), "{path}");
         }
-        let refused = write(&fixture, &fixture.outside, "settings.md", b"mine").unwrap_err();
-        assert_eq!(name(&refused), "Refused", "{refused}");
-        let refused =
-            write(&fixture, &fixture.folder, "../outside/settings.md", b"mine").unwrap_err();
-        assert_eq!(name(&refused), "Refused", "{refused}");
-        assert_eq!(
-            std::fs::read(fixture.outside.join("settings.md")).unwrap(),
-            b"theirs"
-        );
-
-        // A body that is not raw bytes is refused.
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-folder",
-            HeaderValue::from_str(&encode(&fixture.folder.to_string_lossy())).unwrap(),
-        );
-        headers.insert("x-path", HeaderValue::from_static("settings.md"));
-        let refused = call(
-            &fixture,
-            "files_write",
-            InvokeBody::Json(json!("text")),
-            headers,
-        )
-        .map(|_| ())
-        .unwrap_err();
-        assert_eq!(name(&refused), "Refused", "{refused}");
-        assert!(!fixture.folder.join("settings.md").exists());
-    }
-
-    #[test]
-    fn change_folder_moves_into_a_granted_empty_folder() {
-        let fixture = fixture();
-        write(&fixture, &fixture.folder, "settings.md", b"s").unwrap();
-        fixture
-            .app
-            .fs_scope()
-            .allow_directory(&fixture.outside, true)
-            .unwrap();
-        assert_eq!(
-            invoke(
-                &fixture,
-                "files_change_folder",
-                json!({ "from": fixture.folder, "to": fixture.outside })
-            )
-            .unwrap(),
-            json!("moved")
-        );
-        assert_eq!(
-            std::fs::read(fixture.outside.join("settings.md")).unwrap(),
-            b"s"
-        );
-        assert!(!fixture.folder.join("settings.md").exists());
-
-        // The folder the recordings left is closed for the run: nothing
-        // written late lands there.
-        let refused = write(&fixture, &fixture.folder, "settings.md", b"late").unwrap_err();
-        assert_eq!(name(&refused), "Refused", "{refused}");
-        assert!(!fixture.folder.join("settings.md").exists());
-
-        // The folder they moved to is a Whispering folder now, and opens.
-        let next = fixture.outside.parent().unwrap().join("next");
-        std::fs::create_dir_all(&next).unwrap();
-        fixture.app.fs_scope().allow_directory(&next, true).unwrap();
-        assert_eq!(
-            invoke(
-                &fixture,
-                "files_change_folder",
-                json!({ "from": next, "to": fixture.outside })
-            )
-            .unwrap(),
-            json!("opened")
-        );
-        assert_eq!(
-            invoke(&fixture, "folder_git", json!({ "folder": fixture.outside }))
-                .unwrap()
-                .as_object()
-                .unwrap()
-                .keys()
-                .collect::<Vec<_>>(),
-            ["lfsWebm", "repository"]
-        );
-    }
-
-    /// A folder "Change…" refuses is left as it was: what a crash left in it
-    /// is not removed, and the folder it was asked from stays open.
-    #[test]
-    fn change_folder_refuses_without_touching_the_picked_folder() {
-        let fixture = fixture();
-        fixture
-            .app
-            .fs_scope()
-            .allow_directory(&fixture.outside, true)
-            .unwrap();
-        std::fs::write(fixture.outside.join("theirs.txt"), b"theirs").unwrap();
-        let leftover = fixture.outside.join(".settings.md.k3x9q0w1.tmp");
-        std::fs::write(&leftover, b"half").unwrap();
-        let refused = invoke(
-            &fixture,
-            "files_change_folder",
-            json!({ "from": fixture.folder, "to": fixture.outside }),
-        )
-        .unwrap_err();
-        assert_eq!(name(&refused), "Refused", "{refused}");
-        assert!(leftover.exists(), "the refused folder is not swept");
-        write(&fixture, &fixture.folder, "settings.md", b"s").unwrap();
     }
 }

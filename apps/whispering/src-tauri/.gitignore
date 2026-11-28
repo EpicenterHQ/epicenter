@@ -1,4 +1,3 @@
 /target/
 /gen/schemas/
-# Staged by build.rs on platforms that link transcribe-cpp dynamically.
 /transcribe-libs/

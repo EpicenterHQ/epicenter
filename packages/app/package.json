@@ -15,7 +15,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./client": "./src/client.ts",
-		"./markdown": "./src/markdown.ts"
+		"./markdown": "./src/markdown.ts",
+		"./time": "./src/time.ts"
 	},
 	"files": [
 		"src",

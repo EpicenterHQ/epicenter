@@ -3,11 +3,13 @@
 # Granting this to a window lets it record a take into a folder the app's file
 # system scope allows.
 [default]
-description = "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording."
+description = "List the microphones and read one's level, record a take into a folder the file system scope allows, and stop that recording, and listen hands-free, recording each phrase spoken as a take."
 permissions = [
   "allow-inputs",
   "allow-open-meter",
   "allow-close-meter",
   "allow-start",
   "allow-stop",
+  "allow-listen",
+  "allow-unlisten",
 ]

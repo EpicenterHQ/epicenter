@@ -24,9 +24,10 @@ A page reaches it through `@epicenter/recorder`.
 | `src/rate.rs` | The conversion from the microphone's rate to the recording's 16 kHz, on the writer thread. |
 | `src/opus.rs` | The encoder: 20 ms at a time, to Opus at 24 kbps, as the recording arrives. |
 | `src/webm.rs` | The WebM it is written in, a whole second at a time (`LiveWebm`), and how it is finished at Stop. |
+| `src/listen.rs` | Hands-free: the microphone left open, a detector (`earshot`) that hears where a phrase starts and ends, and a take per phrase that begins half a second before the voice and is named here. |
 | `src/meter.rs` | A microphone opened for its level only, closed by its page or with it, or on its own when its stream dies or its page stops hearing it. |
 | `src/permission.rs` | Microphone access through AVFoundation, asked before any microphone opens. |
-| `src/commands.rs` | `inputs`, `open_meter`, `close_meter`, `start`, and `stop`. |
+| `src/commands.rs` | `inputs`, `open_meter`, `close_meter`, `start`, `stop`, `listen`, and `unlisten`. |
 | `src/ended.rs`, `src/error.rs` | Why a capture ended on its own, and the refusals a page switches on by `name`. |
 | `../recorder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/recorder`. Do not edit. |
 
@@ -43,9 +44,8 @@ tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_recorder::init())
 ```
 
-Give the recording window `epicenter-recorder:default`. It needs no event permission: a meter's levels
-and an ending arrive on the channel the page passes to `open_meter` or
-`start`.
+Give the recording window `epicenter-recorder:default`. It needs no event permission: levels and an
+ending arrive on the channel the page passes to `open_meter` or `start`.
 
 ## Commands
 
@@ -60,8 +60,10 @@ the file system scope does not allow is refused.
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(dir, id, device, signals)` | Records `recordings/<id>.webm` in the folder `dir`, from the microphone with id `device` or the system default. Answers nothing. |
+| `start(dir, id, device, signals)` | Records `recordings/<id>.webm` in the folder `dir`, from the microphone with id `device` or the system default, and sends its level on `signals` while it captures. Answers nothing. |
 | `stop()` | Finishes the recording this window started at its path and answers `{ id, durationMs }`. It takes the same few milliseconds for a recording of any length. When what was captured cannot be finished, it says so, and what reached the disk stays at its path as it is. Only the window that started it may stop it. |
+| `listen(dir, device, signals)` | Hands-free. Opens the microphone and keeps it open, holding the host's one recorder slot. Each phrase is a take at `recordings/<id>.webm` in the folder `dir`, from half a second before the voice, under an id made here from the time it began (the page's `timeId` format). `signals` hears the level, `{ kind: 'speech', id }` when a phrase starts, and `{ kind: 'phrase', take }` when a pause of 1.2 seconds ends it; `take` is `{ id, durationMs, voicedMs }`, where `voicedMs` is how long a voice was heard. A phrase is cut at two minutes. |
+| `unlisten()` | Stops listening and releases the microphone. Answers the take it was writing, or `null` between phrases. |
 
 `start` refuses before it opens anything:
 

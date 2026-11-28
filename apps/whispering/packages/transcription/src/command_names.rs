@@ -3,8 +3,4 @@ pub const COMMANDS: &[&str] = &[
     "download_model",
     "remove_model",
     "reveal_model",
-    "get_unload_policy",
-    "set_unload_policy",
-    "list_inference_models",
-    "transcribe_audio",
 ];

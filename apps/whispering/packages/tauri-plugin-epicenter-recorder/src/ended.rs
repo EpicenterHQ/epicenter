@@ -80,9 +80,10 @@ pub fn classify(error: &cpal::Error) -> Option<EndedReason> {
     }
 }
 
-/// What the recorder tells a page over the channel it passed: a meter's level
-/// while it is open (`open_meter`), and once, if it happens, that a recording's
-/// or a meter's capture ended without being asked.
+/// What the recorder tells a page over the channel it passed: the level of a
+/// meter while it is open (`open_meter`) or of a recording while it captures,
+/// and once, if it happens, that a recording's or a meter's capture ended
+/// without being asked.
 ///
 /// The channel belongs to that page alone, so nothing here names the window.
 /// Both are signals, never results: an ending carries no audio, because the

@@ -307,30 +307,6 @@
           "markdownDescription": "Denies the download_model command without any pre-configured scope."
         },
         {
-          "description": "Enables the get_unload_policy command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-get-unload-policy",
-          "markdownDescription": "Enables the get_unload_policy command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the get_unload_policy command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-get-unload-policy",
-          "markdownDescription": "Denies the get_unload_policy command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the list_inference_models command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-list-inference-models",
-          "markdownDescription": "Enables the list_inference_models command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the list_inference_models command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-list-inference-models",
-          "markdownDescription": "Denies the list_inference_models command without any pre-configured scope."
-        },
-        {
           "description": "Enables the list_models command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-models",
@@ -365,30 +341,6 @@
           "type": "string",
           "const": "deny-reveal-model",
           "markdownDescription": "Denies the reveal_model command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the set_unload_policy command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-set-unload-policy",
-          "markdownDescription": "Enables the set_unload_policy command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the set_unload_policy command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-set-unload-policy",
-          "markdownDescription": "Denies the set_unload_policy command without any pre-configured scope."
-        },
-        {
-          "description": "Enables the transcribe_audio command without any pre-configured scope.",
-          "type": "string",
-          "const": "allow-transcribe-audio",
-          "markdownDescription": "Enables the transcribe_audio command without any pre-configured scope."
-        },
-        {
-          "description": "Denies the transcribe_audio command without any pre-configured scope.",
-          "type": "string",
-          "const": "deny-transcribe-audio",
-          "markdownDescription": "Denies the transcribe_audio command without any pre-configured scope."
         }
       ]
     }

@@ -44,15 +44,16 @@ const MIC_LEVEL_EMIT_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The microphone's loudness since the last level was sent: the root mean
 /// square of every sample in between, so a brief loud transient still
-/// registers. A meter sends it at most once per [`MIC_LEVEL_EMIT_INTERVAL`].
-struct Level {
+/// registers. A meter, or a recording, sends it at most once per
+/// [`MIC_LEVEL_EMIT_INTERVAL`].
+pub(crate) struct Level {
     sum_of_squares: f64,
     samples: usize,
     last_sent: Instant,
 }
 
 impl Level {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             sum_of_squares: 0.0,
             samples: 0,
@@ -60,7 +61,7 @@ impl Level {
         }
     }
 
-    fn add(&mut self, samples: &[i16]) {
+    pub(crate) fn add(&mut self, samples: &[i16]) {
         for &sample in samples {
             let normalized = sample as f64 / 32_768.0;
             self.sum_of_squares += normalized * normalized;
@@ -70,7 +71,7 @@ impl Level {
 
     /// The level to send at `now`, from 0 to 1, if one is due and anything
     /// was heard since the last; taking it starts the next interval.
-    fn take(&mut self, now: Instant) -> Option<f32> {
+    pub(crate) fn take(&mut self, now: Instant) -> Option<f32> {
         if self.samples == 0 || now.duration_since(self.last_sent) < MIC_LEVEL_EMIT_INTERVAL {
             return None;
         }

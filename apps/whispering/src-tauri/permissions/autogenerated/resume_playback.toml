@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resume-playback"
+description = "Enables the resume_playback command without any pre-configured scope."
+commands.allow = ["resume_playback"]
+
+[[permission]]
+identifier = "deny-resume-playback"
+description = "Denies the resume_playback command without any pre-configured scope."
+commands.deny = ["resume_playback"]

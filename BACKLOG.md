@@ -10,90 +10,75 @@ current code and dirty work: several chats share this checkout.
 
 ## Whispering
 
-### Finish the Whispering rewrite
+### Ship Whispering 8
 
-- Desired result: The rewrite on `claude/whispering-rebuild`
-  ([#2774](https://github.com/EpicenterHQ/epicenter/pull/2774)) replaces the
-  current app, and its pull request reads as Whispering edited in place.
-- Order: internals on TanStack Query (largely done), then restore the user
-  interface, then polish. Transformations do not return. Delete
-  `apps/whispering-old` last, then open the pull request.
-- Must still hold in the new app, each checked by hand: a failed connection or
-  key save leaves one recoverable row; unsaved transcript edits survive a
-  failed save; an interrupted native recording releases the microphone and
-  `recover()` finishes it; on-device transcription explains what is missing;
-  a recording shows where its audio and transcript live.
-- Before `apps/whispering-old` is deleted, an audit on 2026-11-27 found these
-  still point into it or describe the old app:
-  - Packages the new app or the build still uses from
-    `apps/whispering-old/packages/`: `recorder` and
-    `tauri-plugin-epicenter-recorder` (the new app depends on both),
-    `transcription` (the on-device engine), and `whispering-files`. Each
-    needs a new home; `vite-config` has no users left.
-  - Config that names the old folder: the workspace glob and the
-    `whispering-old` scripts in `package.json`, the members in `Cargo.toml`,
-    the `@source` line in `packages/ui/src/app.css`, and `ROOTS` in
-    `scripts/check-boot-purity.ts`.
-  - Skill examples that link files the rewrite removes: `typescript`
-    (`references/editor-experience.md`, `references/type-organization.md`),
-    `error-handling` (`references/error-variants.md`), `svelte` (`SKILL.md`,
-    `references/component-ui-patterns.md`), and `tsconfig`.
-  - `apps/whispering/README.md` on `main` describes the old app: a folder
-    picker, `settings.md`, transformations that "wait for a later release",
-    and hosted models that "come back". The rewrite's README replaces it,
-    and `docs/vision.md` links its `#the-folder` heading.
-- One place for failures: where every user action finishes, the app shows
-  the message and records a line in a log file in its own folder (time,
-  what was being done, the error's name and message; never transcript text
-  or a key), capped in size. A window-level handler records failures that
-  shared code hands up with `reportError`. Settings has a button to copy the
-  file. Features and screens return errors and call neither `toast` nor a
-  logger.
-- Then: a command-line transcribe mode, so an app in an Epicenter can use
-  Whispering as its transcription engine, as `apps/codex` uses Handy today.
-  The shape, settled on 2026-11-27:
-  - The installed desktop program has a headless mode with Handy's flags:
-    `--transcribe-file <path>`, `--model <id>`, `--json`, and `--list-models`.
-    It transcribes with the engine and selected model the app uses, prints
-    `{ "text": ... }`, and exits. It records nothing, saves nothing, and
-    opens no window.
-  - It does more than Handy in two ways. It takes any audio the engine's
-    decoder reads (WAV, MP3, AAC in MP4, Opus in WebM or Ogg), where Handy
-    takes only 16 kHz mono WAV. It names what went wrong: no speech, a
-    missing model, a file it cannot read. A caller needs no ffmpeg step, and
-    `apps/codex` can switch with one setting.
-  - Transcription is one Rust interface, audio in and text out, with two
-    implementations: the bundled transcribe.cpp engine, and a request to an
-    OpenAI-compatible server. Settings choose between them. The app calls
-    the interface in memory and keeps an on-device model loaded; the command
-    line calls it once. Neither calls the other.
-  - A caller names the program by its full path. The installer puts nothing
-    on `PATH`.
-  - The app keeps its files in its own data directory and shows where they
-    are. An Epicenter reaches Whispering one way: an action written with
-    `defineAction` runs the command line.
-  - The browser version has no command line.
-  - Refused: a folder picker, which needs a setting, a missing-folder screen,
-    and a rule for recordings already made; a background server for an
-    Epicenter to call; recording from the command line.
-  - Set aside, not refused: a Whispering app to copy into an Epicenter, and
-    Whispering sending each finished recording to one.
-  - Grounding: on 2026-11-27 the rewrite only calls a transcription server.
-    The transcribe.cpp engine and the native recorder are packages under
-    `apps/whispering-old/packages/`, and the new app already links the
-    recorder from there. Both move out before `apps/whispering-old` is
-    deleted.
-  - Open: whether the command line reads `dictionary.txt` and the default
-    model when no flag names them; whether it may use the server
-    implementation or only the on-device one.
+- Desired result: The rewrite
+  ([#2774](https://github.com/EpicenterHQ/epicenter/pull/2774)) is released
+  as Whispering 8 and a person who installs it stays current. Its identifier
+  is `so.epicenter.whispering`, so it is a new app to the system: a
+  Whispering 7 install does not update into it, and 8 needs its own update
+  feed from its first release.
+- Must still hold, each checked by hand: a failed key save leaves one
+  recoverable row; unsaved transcript edits survive a failed save; an
+  interrupted native recording releases the microphone and is finished when
+  the app opens again; a recording shows where its audio and transcript live.
+- Owed, each its own pull request:
+  - Updates: the app finds, downloads and installs a newer release, with
+    signing and a release workflow. Nothing exists yet.
+  - A menu-bar icon with Show, Record and Quit, so closing the window is safe
+    on every platform. Today a Mac hides the window to the Dock and other
+    platforms quit.
+  - Windows and Linux: the media pause and paste code for them has never been
+    compiled in the rewrite, the pill's window is untried there, and the
+    transcribe.cpp runtime libraries that `build.rs` stages are not bundled
+    as resources.
+  - One place for failures: where every user action finishes, the app shows
+    the message and records a line in a log file in its own folder (time,
+    what was being done, the error's name and message; never transcript text
+    or a key), capped in size. A window-level handler records failures that
+    shared code hands up with `reportError`. Settings has a button to copy
+    the file. Features and screens return errors and call neither `toast`
+    nor a logger.
+  - Launch at login through `SMAppService` on a Mac. The login item records
+    the program's path today, which breaks when the app moves.
+
+### Text while speaking
+
+- Desired result: Words appear as they are said, in the way Handy does it,
+  designed before it is built: where partial text shows, what the dictionary
+  and cleanup do with text that arrives in pieces, and what a server that
+  does not stream does.
+- Likely the same change: the shortcut and hold to talk record through the
+  listener hands-free uses, so every take keeps the half second before the
+  press and hold to talk works while hands-free listens. Two reviews
+  recommended it on 2026-11-27.
+
+### Whispering as a transcription engine
+
+- Built: the desktop program transcribes a file from a terminal
+  (`--transcribe-file`, `--model`, `--json`, `--list-models`), with the model
+  chosen in the app, any audio the decoder reads, and named failures. An
+  Epicenter reaches Whispering this way: an action written with
+  `defineAction` runs the command line by its full path.
+- Open: whether it applies `dictionary.txt` and cleanup, whose rules are
+  TypeScript today; whether it may send the file to the server the app is
+  set to. Both wait for a caller that needs them.
+- Then: `apps/codex` switches from Handy to it with one setting.
+- Refused: a folder picker; a background server for an Epicenter to call;
+  recording from the command line.
+- Set aside, not refused: a Whispering app to copy into an Epicenter, and
+  Whispering sending each finished recording to one.
 
 ### Dictation into other apps
 
-- Desired result: Start dictation from another app, see that it is working,
-  and know whether the text reached its field; a failed delivery keeps the
-  transcript. Later, a spoken instruction may revise selected text or use
-  chosen screen content, always previewed before it acts.
-- Revisit when: System-wide dictation becomes a milestone, after the rewrite.
+- Built in the rewrite: dictation starts from any app, a floating pill shows
+  it working, and a paste that cannot land leaves the text on the clipboard
+  and says so.
+- Owed: paste only when the app that was in front when the take ended is
+  still in front. A take that waits its turn can paste into whatever window
+  is in front by then.
+- Later: a spoken instruction may revise selected text or use chosen screen
+  content, always previewed before it acts.
 
 ## Operations
 

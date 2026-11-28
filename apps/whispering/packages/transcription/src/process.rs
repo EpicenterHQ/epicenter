@@ -45,6 +45,23 @@ pub fn run<R: Runtime>(app: App<R>, mut callback: impl FnMut(&AppHandle<R>, RunE
     });
 }
 
+/// End a process that ran native inference without an app, such as a
+/// command-line transcription, with `code`.
+///
+/// On macOS this skips C++ static finalizers for the reason [`run`] does:
+/// they can free the Metal device under a model still resident.
+pub fn exit(code: i32) -> ! {
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    let _ = std::io::Write::flush(&mut std::io::stderr());
+    #[cfg(target_os = "macos")]
+    // SAFETY: ends the process at once; both streams are flushed above.
+    unsafe {
+        libc::_exit(code)
+    }
+    #[cfg(not(target_os = "macos"))]
+    std::process::exit(code)
+}
+
 #[cfg(target_os = "macos")]
 fn relaunch(env: &tauri::Env) {
     let mut binary = match tauri::process::current_binary(env) {

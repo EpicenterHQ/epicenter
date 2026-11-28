@@ -1,229 +1,117 @@
 /**
- * The global shortcut (`src-tauri/src/shortcut.rs`): which key, where it is
- * set, and the shell's hold on it. Only a Tauri window has one: a page
- * cannot hold a key while another app has focus, so `openShortcut` answers
- * null in a browser, and the app shows its settings
- * and hears its presses only where it is (`{#if shortcut}`). The shell
- * holds the key while Whispering runs and sends each press; the page
- * decides what a press does (`onPress`).
+ * Pure rules for a shortcut's keys: writing them from a key press, as the
+ * desktop app's shortcut parser reads them, and showing them to a person.
  *
- * The key is `shortcut` in `settings.md`, which travels with
- * the folder; two computers sharing a folder share one shortcut. Rust never
- * reads the note: once it is read, and whenever the key changes, the page
- * asks the shell to hold it (`set_shortcut`).
- *
- * `openShortcut` makes a capability, once, in `src/lib/app.ts`, read
- * through `reactive`: reads answer at once, and `subscribe` hears them
- * change.
+ * ```txt
+ * a key press           →  'Command+Shift+KeyD'  →  '⌘⇧D'  (or 'Win+Shift+D')
+ * settings.json default →  'CommandOrControl+Shift+Semicolon'  →  '⌘⇧;'
+ * ```
  */
-import { invoke, isTauri } from '@tauri-apps/api/core';
-import { extractErrorMessage } from 'wellcrafted/error';
-import type { ShortcutSettings } from './folder-query.js';
+
+/** The parts of a `KeyboardEvent` a shortcut is read from. */
+type Press = Pick<
+	KeyboardEvent,
+	'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
+>;
+
+/** Codes that are a modifier going down on its own, which is no shortcut yet. */
+const MODIFIER = /^(Meta|Control|Alt|Shift|OS)(Left|Right)?$/;
+/** A function key works as a shortcut with no modifier; any other key would be lost to typing. */
+const FUNCTION_KEY = /^F\d{1,2}$/;
+
+/** Keys that type a character: with Shift or Option they still type one (`A`, `é`). */
+const TYPES =
+	/^(Key[A-Z]|Digit\d|Numpad.+|Semicolon|Quote|Comma|Period|Slash|Backslash|Backquote|BracketLeft|BracketRight|Minus|Equal)$/;
 
 /**
- * The global shortcut: the key `settings.md` names and the shell's hold on
- * it. Reads answer at once; `subscribe` hears them change.
+ * The shortcut `press` makes, or undefined while it is not one: only
+ * modifiers are down, or the keys would be lost to typing in every app. A
+ * global shortcut takes its keys from whatever app is in front, so a key
+ * that types needs Control or Command, and any other key but a function
+ * key needs Control, Command or Option. Shift alone is never enough.
  */
-export type GlobalShortcut = {
-	/** The key, in the global-shortcut plugin's spelling. */
-	accelerator(): string;
-	/** The key as a person reads it. */
-	label(): string;
-	/** Why the shell does not hold the key, or null. */
-	problem(): string | null;
-	subscribe(listener: () => void): () => void;
-	/** Hear each press of the shortcut, from any app; returns the unsubscribe. */
-	onPress(listener: () => void): () => void;
-	/** Make `typed` the shortcut; why it was not saved, or null. */
-	save(typed: string): Promise<string | null>;
-	[Symbol.dispose](): void;
-};
-
-const isMac = navigator.userAgent.includes('Mac');
-
-/** Each modifier as a Mac menu shows it, and as Windows and Linux spell it. */
-const MODIFIERS: Record<string, { mac: string; other: string }> = {
-	COMMANDORCONTROL: { mac: '⌘', other: 'Ctrl' },
-	COMMANDORCTRL: { mac: '⌘', other: 'Ctrl' },
-	CMDORCTRL: { mac: '⌘', other: 'Ctrl' },
-	CMDORCONTROL: { mac: '⌘', other: 'Ctrl' },
-	COMMAND: { mac: '⌘', other: 'Super' },
-	CMD: { mac: '⌘', other: 'Super' },
-	SUPER: { mac: '⌘', other: 'Super' },
-	SHIFT: { mac: '⇧', other: 'Shift' },
-	ALT: { mac: '⌥', other: 'Alt' },
-	OPTION: { mac: '⌥', other: 'Alt' },
-	CONTROL: { mac: '⌃', other: 'Ctrl' },
-	CTRL: { mac: '⌃', other: 'Ctrl' },
-};
-
-/** `accelerator` (`CommandOrControl+Shift+;`) as a person reads it: `⌘⇧;` on a Mac, `Ctrl+Shift+;` elsewhere. */
-export function labelOf(accelerator: string, mac = isMac): string {
-	const parts = accelerator.split('+').map((part) => {
-		const modifier = MODIFIERS[part.trim().toUpperCase()];
-		if (modifier !== undefined) return mac ? modifier.mac : modifier.other;
-		return part.trim().length === 1 ? part.trim().toUpperCase() : part.trim();
-	});
-	return parts.join(mac ? '' : '+');
+export function shortcutOf(press: Press): string | undefined {
+	if (!press.code || MODIFIER.test(press.code)) return undefined;
+	const strong = press.ctrlKey || press.metaKey;
+	const enough = TYPES.test(press.code)
+		? strong
+		: strong || press.altKey || FUNCTION_KEY.test(press.code);
+	if (!enough) return undefined;
+	const modifiers = [
+		press.ctrlKey && 'Control',
+		press.altKey && 'Alt',
+		press.shiftKey && 'Shift',
+		press.metaKey && 'Command',
+	].filter((modifier) => modifier !== false);
+	return [...modifiers, press.code].join('+');
 }
 
-/** Keys whose code names a character the accelerator spells as that character. */
-const CHARACTERS: Record<string, string> = {
-	Backquote: '`',
+/**
+ * Whether `a` and `b` are the same keys here, however each is written:
+ * `CommandOrControl` is Command on a Mac and Control elsewhere, and the
+ * order of modifiers does not matter.
+ */
+export function sameShortcut(a: string, b: string, mac: boolean): boolean {
+	const keys = (shortcut: string) =>
+		shortcut
+			.split('+')
+			.map((part) =>
+				part === 'CommandOrControl' ? (mac ? 'Command' : 'Control') : part,
+			)
+			.sort()
+			.join('+');
+	return keys(a) === keys(b);
+}
+
+const MAC: Record<string, string> = {
+	CommandOrControl: '⌘',
+	Command: '⌘',
+	Control: '⌃',
+	Alt: '⌥',
+	Shift: '⇧',
+};
+const OTHER: Record<string, string> = {
+	CommandOrControl: 'Ctrl',
+	Command: 'Win',
+	Control: 'Ctrl',
+};
+const KEYS: Record<string, string> = {
+	Semicolon: ';',
+	Quote: "'",
+	Comma: ',',
+	Period: '.',
+	Slash: '/',
 	Backslash: '\\',
+	Backquote: '`',
 	BracketLeft: '[',
 	BracketRight: ']',
-	Comma: ',',
-	Equal: '=',
 	Minus: '-',
-	Period: '.',
-	Quote: "'",
-	Semicolon: ';',
-	Slash: '/',
+	Equal: '=',
+	ArrowUp: '↑',
+	ArrowDown: '↓',
+	ArrowLeft: '←',
+	ArrowRight: '→',
+	Enter: '↩',
+	Escape: 'Esc',
 };
 
-/**
- * The accelerator a key press spells (`CommandOrControl+Shift+;`), named by
- * the key's place on the keyboard (`event.code`), so the layout and Shift do
- * not change it, in the names the shell's parser takes. Undefined while only
- * modifiers are down, and for a key with no modifier but Shift unless it is
- * a function key: a global shortcut on a letter that types would take it
- * from every app.
- * The platform's command key (⌘ on a Mac, Ctrl elsewhere) is
- * `CommandOrControl`, so a shortcut set on one computer means the same on
- * the other.
- */
-export function acceleratorOf(
-	event: Pick<
-		KeyboardEvent,
-		'code' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
-	>,
-	mac = isMac,
-): string | undefined {
-	const { code } = event;
-	if (/^(Shift|Control|Alt|Meta|OS)(Left|Right)?$/.test(code) || code === '')
-		return undefined;
-	const key =
-		CHARACTERS[code] ??
-		/^Key([A-Z])$/.exec(code)?.[1] ??
-		/^Digit(\d)$/.exec(code)?.[1] ??
-		code;
-	const command = mac ? event.metaKey : event.ctrlKey;
-	const other = mac ? event.ctrlKey : event.metaKey;
-	const modifiers = [
-		command && 'CommandOrControl',
-		other && (mac ? 'Control' : 'Super'),
-		event.altKey && 'Alt',
-		event.shiftKey && 'Shift',
-	].filter((modifier): modifier is string => modifier !== false);
-	// Shift alone only types a capital: it needs another modifier too.
-	const held = modifiers.filter((modifier) => modifier !== 'Shift');
-	if (held.length === 0 && !/^F\d{1,2}$/.test(key)) return undefined;
-	return [...modifiers, key].join('+');
-}
-
-/** Ask the shell to hold `accelerator`: null once it does, else why not. */
-function hold(accelerator: string): Promise<string | null> {
-	return invoke('set_shortcut', { accelerator }).then(
-		() => null,
-		(cause: unknown) => extractErrorMessage(cause),
+/** `keys` as a person reads them: `⌘⇧;` on a Mac, `Ctrl+Shift+;` elsewhere. Empty for no shortcut. */
+export function shortcutLabel(keys: string, mac: boolean): string {
+	if (!keys) return '';
+	const parts = keys.split('+').map((part) => {
+		const named = (mac ? MAC : OTHER)[part] ?? KEYS[part];
+		if (named) return named;
+		return part.replace(/^(Key|Digit)(?=.$)/, '');
+	});
+	// Mac symbols read as one cluster; a word such as Space stands apart.
+	if (!mac) return parts.join('+');
+	return parts.reduce(
+		(label, part) => label + (part.length > 1 && label ? ` ${part}` : part),
+		'',
 	);
 }
 
-/**
- * The global shortcut over `settings`, followed from now on for the page's
- * life, or null outside a Tauri window. Whenever the key changes, the shell
- * is asked to hold it; `holdNow` asks once the settings were first read.
- */
-export function openShortcut(
-	settings: ShortcutSettings,
-): (GlobalShortcut & { holdNow(): void }) | null {
-	if (!isTauri()) return null;
-	/** The last key the shell was asked to hold, and its answer once it came. */
-	let asked: string | undefined;
-	let held: { accelerator: string; problem: string | null } | undefined;
-	let started = false;
-	const listeners = new Set<() => void>();
-
-	/** Ask the shell to hold the key when it changed. */
-	function holdKey() {
-		if (!started) return;
-		const key = settings.get();
-		if (key === asked) return;
-		asked = key;
-		void hold(key).then((problem) => {
-			if (asked !== key) return;
-			held = { accelerator: key, problem };
-			tell();
-		});
-	}
-
-	function tell() {
-		for (const listener of [...listeners]) listener();
-	}
-
-	// Followed for the page's life, as the shell holds the key for it.
-	const stop = settings.subscribe(() => {
-		holdKey();
-		tell();
-	});
-
-	return {
-		/** Start holding the key, once `settings.md` was first read. */
-		holdNow() {
-			started = true;
-			holdKey();
-		},
-		accelerator: () => settings.get(),
-		label: () => labelOf(settings.get()),
-		problem: () => (held?.accelerator === settings.get() ? held.problem : null),
-		subscribe(listener: () => void) {
-			listeners.add(listener);
-			return () => void listeners.delete(listener);
-		},
-		onPress,
-		/**
-		 * Make `typed` the shortcut in `settings.md`. The shell must hold it
-		 * first, so a key that does not parse or that another app holds is
-		 * never written. Answers why it was not saved, or null.
-		 */
-		async save(typed: string): Promise<string | null> {
-			const key = typed.trim();
-			if (key === '')
-				return 'Type a shortcut, such as CommandOrControl+Shift+;.';
-			const refused = await hold(key);
-			if (refused !== null) {
-				void hold(settings.get());
-				return refused;
-			}
-			// Held now, so the change `settings.md` reports asks the shell nothing more.
-			asked = key;
-			held = { accelerator: key, problem: null };
-			const saved = await settings.set(key);
-			if (saved.error !== null) {
-				asked = undefined;
-				holdKey();
-				return saved.error.message;
-			}
-			return null;
-		},
-		/** Stop following `settings.md`; the shell keeps the key it holds. */
-		[Symbol.dispose]: stop,
-	};
-}
-
-/** Hear each press of the global shortcut, the shell's event code loaded with the first. Answers the unsubscribe. */
-function onPress(listener: () => void): () => void {
-	let stop: (() => void) | undefined;
-	let stopped = false;
-	void import('@tauri-apps/api/event')
-		.then(({ listen }) => listen('whispering://toggle-recording', listener))
-		.then((unlisten) => {
-			if (stopped) unlisten();
-			else stop = unlisten;
-		});
-	return () => {
-		stopped = true;
-		stop?.();
-	};
-}
+/** Whether this is a Mac, which writes shortcuts as symbols. */
+export const isMac = () =>
+	typeof navigator !== 'undefined' &&
+	/Mac|iPhone|iPad/.test(navigator.platform);

@@ -1,7 +1,7 @@
 [package]
 name = "whispering"
-version = "7.11.1"
-description = "Whispering as a desktop window over the folder it keeps its recordings in, recorded into from the first sample"
+version = "8.0.0"
+description = "Whispering's desktop window: records into the app's data directory from the first second"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -12,34 +12,50 @@ publish = false
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-# The facade the crates log through; `main.rs` writes its records to stderr.
-log = "0.4"
-# Provider API keys, as Keychain items (`secrets.rs`).
+# The transcription server's API key, as a Keychain item per server (`keys.rs`).
 keyring = "4.2"
-# Decodes the folder and path a raw write carries in its headers (`files.rs`).
-percent-encoding = "2.3"
-# `generate_context!` writes the configuration's `plugins` block as
-# `serde_json` values in the app's own crate, and the tests read the
-# configuration with it.
+# Has the system open Whispering at login (`autostart.rs`).
+tauri-plugin-autostart = "2"
+# Presses the paste keys in the app in front (`paste.rs`).
+enigo = "0.5.0"
+log = "0.4"
+# Sends a recording to the transcription server (`servers.rs`).
+reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2.12", features = [] }
-tauri-plugin-dialog = "2.7"
-tauri-plugin-epicenter-recorder = { path = "../packages/tauri-plugin-epicenter-recorder" }
+# `macos-private-api` lets the pill's window be transparent on a Mac (`pill.rs`).
+tauri = { version = "2.12", features = ["protocol-asset", "macos-private-api"] }
+# Copies a transcript the moment it arrives, with no click to allow it.
+tauri-plugin-clipboard-manager = "2.5"
+# Transcribes on this computer and keeps the models (`local.rs`).
 tauri-plugin-epicenter-transcription = { path = "../packages/transcription" }
-tauri-plugin-fs = "2.4"
-tauri-plugin-global-shortcut = "2.3"
-tauri-plugin-http = "2.5"
+tauri-plugin-epicenter-recorder = { path = "../packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-fs = "2.7"
+# Holds the shortcuts that reach Whispering from any app (`shortcuts.rs`).
+tauri-plugin-global-shortcut = "2.4"
+# Shows a downloaded model's folder, for the transcription plugin's `reveal_model`,
+# and Whispering's own (`files_reveal`).
 tauri-plugin-opener = "2.5"
-tauri-plugin-persisted-scope = "2.3"
-tauri-plugin-single-instance = "2.3"
-# The path rule the file commands and the recorder share, and the write
-# beside a target the file commands make.
-whispering-files = { path = "../packages/whispering-files" }
-# A direct dependency gives this final app's build script the
-# DEP_TRANSCRIBE_CPP_* metadata `build.rs` reads.
+tauri-plugin-single-instance = "2.5"
+# Named here so `build.rs` gets its `DEP_TRANSCRIBE_CPP_*` paths; the
+# transcription plugin chooses its features.
 transcribe-cpp = { version = "0.1.0", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+# Pauses and resumes system media through GSMTC (`media/windows.rs`).
+windows = { version = "0.62", features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
+tokio = { version = "1", features = ["rt"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Pauses and resumes system media through MPRIS on the session D-Bus (`media/linux.rs`).
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["time"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Reads which apps are playing sound, so media is resumed only if it was playing (`media/macos/audio.rs`).
+core-foundation-sys = "0.8.7"
+# The pill's window as a panel that takes clicks without activating Whispering (`pill.rs`).
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
 
 [dev-dependencies]
 tempfile = "3.8"
-# The mock runtime drives the real commands in tests.
-tauri = { version = "2.12", features = ["test"] }

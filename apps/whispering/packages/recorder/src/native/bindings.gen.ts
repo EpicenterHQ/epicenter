@@ -20,8 +20,9 @@ export const commands = {
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
 	 *  Start recording the take `id` for the folder `folder` (`allowed_folder`),
-	 *  from the microphone whose id is `device` or the system default. An
-	 *  ending nobody asked for arrives on `signals`.
+	 *  from the microphone whose id is `device` or the system default. Its level
+	 *  arrives on `signals` while it captures, and so does an ending nobody asked
+	 *  for.
 	 *
 	 *  `id` must be one plain name, with nothing at `recordings/<id>.webm` in
 	 *  the folder. The take is recorded there, written a second at a time;
@@ -37,6 +38,31 @@ export const commands = {
 	 *  be written to its end is left as it is, and the answer is `Failed`.
 	 */
 	stop: () => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop")),
+	/**
+	 *  Listen hands-free on the microphone whose id is `device`, or the system
+	 *  default: the microphone stays open, and `signals` hears its level, each
+	 *  phrase starting (`speech`), and each phrase's finished take (`phrase`).
+	 *  Each take is recorded in `recordings/` in the folder `folder`
+	 *  (`allowed_folder`), under an id made here from the time it began.
+	 *  Listening holds the host's one recorder slot until `unlisten`, or until
+	 *  this window's page reloads or the window is destroyed. Microphone access
+	 *  is asked for first, and a denial opens nothing.
+	 */
+	listen: (folder: string, device: string | null, signals: Channel<ListenSignal>) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|listen", { folder, device, signals })),
+	/**
+	 *  Stop this window's listener and release its microphone. Answers the take
+	 *  it was writing, finished in place, or null between phrases.
+	 */
+	unlisten: () => typedError<{
+	/**  The id the worker gave it: its audio is `recordings/<id>.webm`. */
+	id: string,
+	durationMs: number,
+	/**
+	 *  How long the detector heard a voice in it. A cough or a door is a
+	 *  few hundred milliseconds; a sentence is seconds.
+	 */
+	voicedMs: number,
+} | null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|unlisten")),
 };
 
 /* Types */
@@ -80,6 +106,18 @@ export type EndedReason =
  */
 "storageFailed";
 
+/**  A finished take that hands-free recorded. */
+export type HeardTake = {
+	/**  The id the worker gave it: its audio is `recordings/<id>.webm`. */
+	id: string,
+	durationMs: number,
+	/**
+	 *  How long the detector heard a voice in it. A cough or a door is a
+	 *  few hundred milliseconds; a sentence is seconds.
+	 */
+	voicedMs: number,
+};
+
 /**
  *  A microphone the page can choose: the id to ask for it by, the name it gives
  *  itself, and whether the system uses it by default.
@@ -89,6 +127,20 @@ export type Input = {
 	name: string,
 	isDefault: boolean,
 };
+
+/**  What a listener tells its page over the channel it passed to `listen`. */
+export type ListenSignal =
+/**  The microphone's level since the last one, from 0 to 1. */
+{ kind: "level"; level: number | null } |
+/**  A phrase has started, and its take is being written as `id`. */
+{ kind: "speech"; id: string } |
+/**  A phrase ended on a pause, and its take is finished at its path. */
+{ kind: "phrase"; take: HeardTake } |
+/**
+ *  The microphone, or the disk, stopped on its own, and why. Nothing more
+ *  is heard; `unlisten` answers a take that was being written.
+ */
+{ kind: "ended"; reason: EndedReason };
 
 /**
  *  What `open_meter` answers: the id to close it by, and the name of the
@@ -144,9 +196,10 @@ export type RecorderError =
 { name: "Failed"; message: string };
 
 /**
- *  What the recorder tells a page over the channel it passed: a meter's level
- *  while it is open (`open_meter`), and once, if it happens, that a recording's
- *  or a meter's capture ended without being asked.
+ *  What the recorder tells a page over the channel it passed: the level of a
+ *  meter while it is open (`open_meter`) or of a recording while it captures,
+ *  and once, if it happens, that a recording's or a meter's capture ended
+ *  without being asked.
  *
  *  The channel belongs to that page alone, so nothing here names the window.
  *  Both are signals, never results: an ending carries no audio, because the

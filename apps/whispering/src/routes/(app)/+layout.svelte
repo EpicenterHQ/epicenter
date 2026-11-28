@@ -1,100 +1,194 @@
 <!--
-	Whispering's root. In a browser only one tab runs it: a second
-	tab says so and waits until the first closes (`holdOneTab`). The folder
-	and `settings.md` are read before the app renders, and read again
-	whenever the window regains focus, since another program may write them
-	(`folder-query.ts`). Leaving asks first while typing is not yet saved.
+	The main window's frame: the sidebar, and the strip that shows a take
+	under way on any screen but Home, which shows its own. It hands the
+	screens the real dictation (`DictationView`), adding what dictation still
+	needs, which it reads from the settings, and keeps the floating pill's
+	window told.
 -->
 <script lang="ts">
-	import { Button } from '@epicenter/ui/button';
-	import { Spinner } from '@epicenter/ui/spinner';
+	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
+	import * as Sidebar from '@epicenter/ui/sidebar';
+	import { Toaster } from '@epicenter/ui/sonner';
+	import { toastOnError } from '@epicenter/ui/toast-on-error';
+	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { createQuery, QueryClientProvider } from '@tanstack/svelte-query';
-	import type { Snippet } from 'svelte';
-	import { holdShortcut, query } from '$lib/app.js';
-	import { unsaved } from '$lib/note-editor.svelte.js';
-	import { holdOneTab } from '$lib/one-tab.svelte.js';
-	import { folderPath } from '$lib/this-computer.js';
-	import WhisperingApp from '../components/WhisperingApp.svelte';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { page } from '$app/state';
+	import { dictation } from '#lib/dictation.svelte.ts';
+	import { transcriber } from '#lib/data/settings.ts';
+	import { type Keys, type Need, type Outcome, setDictation } from '#lib/dictation-view.ts';
+	import { local, paste, pill, shortcuts } from '#lib/platform/index.ts';
+	import { isMac, shortcutLabel } from '#lib/shortcut.ts';
+	import { shortcutHolds } from '#lib/shortcut-holds.svelte.ts';
+	import { runQuery } from 'wellcrafted/query';
+	import { modelsQueries, pasteQueries, queryClient, settingsQueries } from '#lib/queries.ts';
+	import AppSidebar from './AppSidebar.svelte';
+	import RecordingBar from './RecordingBar.svelte';
 
-	let { children }: { children: Snippet } = $props();
+	let { children } = $props();
 
-	const tab = holdOneTab();
-	const held = $derived(tab.state() === 'held');
-	/** The folder's notes and audio, read once this tab holds it, and again whenever the window regains focus. */
-	const read = createQuery(
-		() => ({ ...query.folderQueries.read(), enabled: held }),
-		() => query.queryClient,
+	/**
+	 * Settings are read into the cache before the first screen, so no page
+	 * shows the wrong server or opens a form empty. A file that cannot be
+	 * read leaves nothing set, and says so.
+	 */
+	const settingsRead = runQuery(queryClient, settingsQueries.read()).then((read) => {
+		if (read.error) toastOnError(read, 'Could not read your settings');
+		else dictation.forgetOld();
+	});
+
+	const settings = createQuery(() => settingsQueries.read(), () => queryClient);
+	const models = createQuery(() => modelsQueries.list(), () => queryClient);
+	const SET_UP = { label: 'Set up transcription', href: '/settings/transcription' };
+	/** Whether macOS lets a paste land; asked again when the window comes back from System Settings. */
+	const pasteAllowed = createQuery(
+		() => ({
+			...pasteQueries.allowed(),
+			enabled: paste.available && settings.data?.['output.paste'] === true,
+			refetchOnWindowFocus: 'always' as const,
+		}),
+		() => queryClient,
 	);
-	/** `settings.md`, read as the folder is. */
-	const settings = createQuery(
-		() => ({ ...query.settingsQueries.get(), enabled: held }),
-		() => query.queryClient,
+	const pasteNeed = $derived<Need[]>(
+		settings.data?.['output.paste'] && paste.available && pasteAllowed.data === false
+			? [
+					{
+						id: 'accessibility',
+						problem:
+							'Paste at the cursor is off: macOS has not allowed it. Text goes to your clipboard instead.',
+						fix: { label: 'Allow it', href: '/settings/output' },
+					},
+				]
+			: [],
 	);
 	/**
-	 * Whether both were read once, so the app renders. A later read that
-	 * fails leaves it shown. Both results are read every time: a query
-	 * reports only what its reader has read, so a field skipped once would
-	 * never update.
+	 * What transcription still needs: a server filled in, or the chosen
+	 * model downloaded. Nothing until the settings and the models are read,
+	 * so no screen flashes a need that is met.
 	 */
-	const opened = $derived(
-		[read.data, settings.data].every((data) => data !== undefined),
-	);
-	/** Why a first read failed, while the app is not shown. */
-	const failed = $derived(
-		[read.error, settings.error].find((error) => error !== null) ?? null,
-	);
+	const transcriptionNeeds = $derived.by<Need[]>(() => {
+		if (!settings.data) return [];
+		const chosen = transcriber(settings.data);
+		if (chosen?.kind === 'server') return [];
+		if (chosen?.kind === 'local' && local.available) {
+			if (!models.data || models.data.some((model) => model.id === chosen.model && model.downloaded))
+				return [];
+			return [
+				{
+					id: 'model',
+					problem: 'The transcription model is not downloaded. Recordings are kept, without text.',
+					fix: SET_UP,
+				},
+			];
+		}
+		return [
+			{
+				id: 'server',
+				problem: 'No transcription server is set. Recordings are kept, without text.',
+				fix: SET_UP,
+			},
+		];
+	});
 
-	$effect(() => {
-		// A browser may clear a site's storage; ask it to keep Whispering's.
-		if (held) void navigator.storage?.persist?.().catch(() => false);
+	/** The shortcuts' keys, as `settings.json` writes them. */
+	const toggleKeys = $derived(settings.data?.['shortcut.toggle'] ?? '');
+	const holdKeys = $derived(settings.data?.['shortcut.hold'] ?? '');
+	const handsFreeKeys = $derived(settings.data?.['shortcut.handsFree'] ?? '');
+	/** The shortcuts as a person reads them; one that is off or not held is left out. */
+	const keys = $derived<Keys>({
+		toggle: shortcuts.available && !shortcutHolds.problem('toggle') ? shortcutLabel(toggleKeys, isMac()) : '',
+		hold:
+			shortcuts.available && holdKeys && !shortcutHolds.problem('hold')
+				? shortcutLabel(holdKeys, isMac())
+				: undefined,
 	});
-	$effect(() => {
-		if (opened) holdShortcut();
+	const needs = $derived<Need[]>([...transcriptionNeeds, ...pasteNeed]);
+	const view = { ...dictation, needs: () => needs, keys: () => keys };
+	setDictation(view);
+
+	/**
+	 * A narrow window keeps the sidebar folded to its icons, so the page has
+	 * the room; a wide one shows it as the person last left it.
+	 */
+	const wide = new MediaQuery('min-width: 768px');
+	let sidebarOpen = $state(true);
+
+	const settingsKnown = $derived(settings.data !== undefined);
+	/**
+	 * Escape, while a take a person started is recording and the settings
+	 * want it; nothing otherwise, so Escape is every other app's the rest
+	 * of the time. A hands-free take has no cancel: Stop listening ends it.
+	 */
+	const cancelKeys = $derived.by(() => {
+		const take = dictation.take();
+		const cancellable = take.kind === 'recording' && take.trigger !== 'voice';
+		return cancellable && settings.data?.['shortcut.escapeCancels'] ? 'Escape' : '';
 	});
+	// Hold the shortcuts the settings name, and Escape while a take records.
+	// Rust leaves alone a shortcut whose keys did not change, so a hold
+	// under way keeps its release when Escape comes and goes.
+	$effect(() => {
+		if (!settingsKnown) return;
+		shortcutHolds.paused();
+		void shortcutHolds.apply({
+			toggle: toggleKeys,
+			hold: holdKeys,
+			handsFree: handsFreeKeys,
+			cancel: cancelKeys,
+		});
+	});
+	$effect(() => shortcuts.onPress((name, down) => dictation.press(name, down)));
+
+	const pillOn = $derived(settings.data?.['output.pill'] ?? true);
+	// The floating pill shows the take from any app and sends back what was
+	// pressed. Turned off in the settings, it is told nothing is happening.
+	$effect(() => {
+		const outcome: Outcome = pillOn ? dictation.outcome() : { kind: 'none' };
+		pill.publish({
+			take: pillOn ? dictation.take() : { kind: 'idle' },
+			outcome,
+			level: dictation.level(),
+			silent: dictation.silent(),
+			handsFree: pillOn ? dictation.handsFree() : { kind: 'off' },
+			keys,
+			cleaning: outcome.kind === 'transcribing' && dictation.isCleaning(outcome.id),
+		});
+	});
+	$effect(() =>
+		pill.onAction((action) => {
+			if (action.kind === 'toggle') dictation.toggle();
+			else if (action.kind === 'cancel') dictation.cancel();
+			else if (action.kind === 'dismiss') dictation.dismiss();
+			else if (action.kind === 'setHandsFree') dictation.setHandsFree(action.on);
+			else dictation.show(action.href);
+		}),
+	);
 </script>
 
-<svelte:window
-	onbeforeunload={(event) => {
-		if (unsaved() > 0) event.preventDefault();
-	}}
-/>
-
-{#if tab.state() === 'waiting'}
-	<main class="flex h-dvh flex-col items-center justify-center gap-2 p-6 text-center" data-testid="other-tab">
-		<p class="text-base font-medium">Whispering is open in another tab.</p>
-		<p class="text-sm text-muted-foreground">Use that tab, or close it and this one opens.</p>
-	</main>
-{:else if !opened && failed !== null}
-	<main class="flex h-dvh flex-col items-center justify-center gap-3 p-6 text-center" role="alert" data-testid="folder-problem">
-		<p class="text-base font-medium">Whispering could not read its folder.</p>
-		<p class="max-w-md text-sm text-muted-foreground">{failed.message}</p>
-		<div class="flex gap-2">
-			<Button
-				size="sm"
-				onclick={() => {
-					void read.refetch();
-					void settings.refetch();
-				}}>Try again</Button
+<QueryClientProvider client={queryClient}>
+	<Tooltip.Provider>
+		{#await settingsRead then}
+			<!--
+				The frame is pinned to the window's edges, so it is exactly the
+				window whatever a viewport unit says, and the document under it
+				has nothing to scroll. Each page scrolls inside the inset, which
+				is the window's one `<main>`.
+			-->
+			<Sidebar.Provider
+				class="fixed inset-0 min-h-0"
+				bind:open={() => wide.current && sidebarOpen, (open) => (sidebarOpen = open)}
 			>
-			{#if folderPath.get() !== null}
-				<!-- A folder the person picked may be gone, or no longer granted. -->
-				<Button
-					size="sm"
-					variant="outline"
-					onclick={() => {
-						folderPath.set(null);
-						location.reload();
-					}}>Use the default folder</Button
-				>
-			{/if}
-		</div>
-	</main>
-{:else if !opened}
-	<main class="flex h-dvh items-center justify-center" role="status" aria-label="Opening Whispering">
-		<Spinner class="size-5" />
-	</main>
-{:else}
-	<QueryClientProvider client={query.queryClient}>
-		<WhisperingApp>{@render children()}</WhisperingApp>
-	</QueryClientProvider>
-{/if}
+				<AppSidebar />
+				<Sidebar.Inset class="min-h-0">
+					{#if page.url.pathname !== '/' && dictation.take().kind !== 'idle'}
+						<RecordingBar />
+					{/if}
+					{@render children()}
+				</Sidebar.Inset>
+			</Sidebar.Provider>
+		{/await}
+	</Tooltip.Provider>
+</QueryClientProvider>
+
+<ConfirmationDialog />
+<Toaster offset={16} closeButton />

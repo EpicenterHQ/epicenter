@@ -1,187 +1,37 @@
 # @epicenter/recorder
 
-Recordings, microphone streams, device vocabulary, and voice activity
-detection.
+The TypeScript commands and types for Whispering's native recorder plugin,
+[`tauri-plugin-epicenter-recorder`](../tauri-plugin-epicenter-recorder/README.md).
 
-## Recording
+The package has one file, `src/native/bindings.gen.ts`, exported as
+`@epicenter/recorder/native`. The plugin generates it from its Rust commands
+and types. Do not edit it by hand.
 
-A recording's audio is at `recordings/<id>.<ext>` when it stops. The two
-hosts need not promise the same things
-([Whispering's decisions](../../README.md#web-and-desktop)):
-on the desktop the shell writes the take at that path from its first
-second and outlives the page, so a quit finishes it and a crash keeps
-what reached the disk; in a browser the page keeps the take in memory until
-Stop, and a crash or a closed tab loses it
-(ADR-0779).
-`recorder` from `@epicenter/recorder` is this window's: the package
-chooses it when it loads, with `isTauri()`
-([Whispering's decisions](../../README.md#web-and-desktop)),
-and the shell's code loads with its first call, so a browser never loads
-it. Both satisfy the `Recorder` interface, and every page calls it the
-same way:
+## Who imports it
 
-```txt
-@epicenter/recorder           the shared vocabulary (Recorder, the types, RecorderError) and recorder, chosen when it loads
-  src/tauri.ts   → in a Tauri window, over tauri-plugin-epicenter-recorder: the shell writes Opus in WebM at recordings/<id>.webm from its first second, and finishes it there at stop
-  src/browser.ts → in a browser, over MediaRecorder: pieces kept in memory, written once at recordings/<id>.m4a (or .webm) at stop
-  /browser    → the page's own recorder and voice activity detection, for code that records from the page in both
-  /vad-assets → the VAD runtime files, for a build's static copy
-```
-
-| `Recorder` | What it does |
-| --- | --- |
-| `start({ files, id, input?, signal? })` | Record recording `id`; the handle's `stop` answers `{ id, durationMs }` once its audio is at `recordings/<id>.<ext>` |
-| `listInputs()` | The inputs connected now, `{ inputs: [{ deviceId, label }], namesWithheld? }`. Opens nothing and never asks for access |
-| `openMeter({ input?, signal? })` | Open one input for its level only, until `close` |
-| `allow?({ signal? })` | Browser only: ask for access so inputs are listed by name, releasing the default microphone at once |
-| `onInputsChange?(listener)` | Browser only: hear inputs connected or removed. The desktop shell announces nothing |
-
-The functions need no `this`, so an app passes the whole `recorder`, or any
-one of them, on its own.
+[Whispering](../../README.md) is the only importer. Its desktop recorder in
+`apps/whispering/src/lib/platform/recorder/` calls the generated `commands`
+and reads the generated types. The browser recorder in the same folder uses
+the page's own microphone and imports nothing from here.
 
 ```ts
-import { recorder } from '@epicenter/recorder';
-
-const { data: recording, error } = await recorder.start({
-	files: audio, // AudioFiles: the folder's read and write, and its location on the desktop
-	id: '2026-10-15T09-30-00-000Z-k3x9a2f8', // one plain name; the audio is recordings/<id>.<ext>
-	input: { deviceId, label }, // optional; undefined is the system default
-});
-const { data: stopped } = await recording.stop(); // { id, durationMs }: the microphone is released, and the audio is in the folder
+import { commands } from '@epicenter/recorder/native';
 ```
 
-`start({ files, id, input, signal })` records recording `id`, whose audio
-is at `recordings/<id>.<ext>` in the app's folder (`AudioFiles`): on the
-desktop the shell records the take there, in the folder at
-`files.location`, from its first second; in a browser Stop writes the take once with
-`files.write`, which answers once it landed. `stop()` answers
-`{ id, durationMs }`.
+## Regenerating
 
-| | Desktop | Browser |
-| --- | --- | --- |
-| The file | `recordings/<id>.webm`: Opus in WebM written there a second at a time from its first second, and finished in place by `stop` (Whispering's [`AGENTS.md`](../../AGENTS.md)) | `recordings/<id>.m4a`, else `.webm`, written once by `stop` |
-| `stop` | Finishes the take in place: the same few milliseconds for a recording of any length. A take that could not be written to its end is left as it is and answers `Failed` | Joins the pieces and writes them with `files.write`, answering once the write landed |
-| Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
-| While it records | Each whole second is written as it is encoded | Each piece `MediaRecorder` hands over (about a second) is kept in memory; the leave guard asks before the page closes |
-| Quit, crash, closed window or tab | A closed window or a quit finishes the take. A crash keeps it up to about the last second, as it is: no Duration or Cues, perhaps a torn block at its end. Nothing repairs it; it plays, and transcribes, from its whole seconds | The take is lost |
-| Refused before the microphone opens | The folder is not one the app may use, the id is not a plain name, or its audio is already there | Audio with the id is there |
-| Chosen microphone | Asked for by the shell's ID, as `listInputs` answers it (`input.deviceId`) | Asked for by the browser's ID, as `listInputs` answers it (`input.deviceId`) |
-| Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
-| `signal` aborted after the microphone opened | Stopped: the recording is finished and kept | Released; nothing was written |
-| `durationMs` at `stop` | The samples written over the rate, which the file's Duration states too | The recorder's own clock: the time it spent recording, pauses left out |
-
-AAC in MP4 is asked for first (`audio/mp4;codecs=mp4a.40.2`, saved as `.m4a`),
-then Opus in WebM (`.webm`). The browser recorder reads the page's own
-microphone, encoder, audio graph and clock; its tests put fakes in place of
-those globals.
-
-`onEnded` reports the first unexpected ending, including one received before
-subscription. Stop still claims what was captured and retires the listeners.
-Every recording and meter, on either host, keeps its listeners the same way
-(`signals.ts`).
-Nothing deletes a recording. In a browser, final encoder output is collected
-even if the browser already stopped after its microphone tracks ended.
-
-A chosen microphone that is not connected is refused as `InputUnavailable`
-on both; no other microphone is opened in its place. Every failure is a
-`RecorderError`, switched on by `name`. Nothing here says whether a
-recording is running: that is the handle `recorder.start` returns, and it
-ends with the page.
-
-## Inputs and levels on the desktop
-
-A page in a Tauri window opens no microphone of its own. Its `recorder`
-asks the shell for the inputs and for a level:
-
-```ts
-import { recorder } from '@epicenter/recorder';
-
-const { data: listing } = await recorder.listInputs(); // { inputs: [{ deviceId, label }] }
-const { data: meter } = await recorder.openMeter({ input: listing.inputs[0] });
-meter.microphone; // its name
-meter.onLevel((rms) => bar.set(rms)); // at most twenty times a second
-await meter.close(); // the shell also closes it when the page reloads or its window closes
-```
-
-A meter's `onEnded` reports its first unexpected ending, including one received
-before the open reply or subscription. `close` retires its listeners. Each
-recording and meter owns a channel the shell sends its ending on, and a
-meter its levels.
-There is no `allow` and no `onInputsChange`: the shell names every input
-without access, asks for access itself, and announces no changes.
-
-The ID is cpal's device ID (`coreaudio:<device UID>` on macOS), which stays
-the same across launches and reconnections. Listing needs no microphone
-permission; the shell's recorder asks macOS for it before it opens a meter
-or records, and a denial is `PermissionDenied`.
-
-## Inputs and levels in a browser
-
-A browser's `recorder` has the same `listInputs` and
-`openMeter`, over the page's own microphone, and two the desktop has no use
-for: `allow`, which opens the default microphone and releases it at once so
-the browser lists inputs by name, and `onInputsChange`, the browser's
-`devicechange`. `listInputs` is the browser's own `enumerateDevices`,
-without the system aliases (`default`, `communications`), which no input
-stands for; until access is allowed it names nothing and says
-`namesWithheld`. Recording, a meter, enabling access, and voice activity
-detection all open a microphone the same way (`microphone.ts`): exactly the
-chosen input, with the browser's voice processing off, and released by
-whoever opened it.
-
-## Voice activity detection
-
-It calls `getUserMedia`, so it is in the browser entry,
-`@epicenter/recorder/browser`.
-
-```ts
-import {
-	// Voice activity detection (Silero v5 via @ricky0123/vad-web)
-	createVadRecorder,
-} from '@epicenter/recorder/browser';
-```
-
-Types: `VadRecorder`, `VadRecorderError`, `StartActiveListeningOptions`.
-
-Voice activity detection opens its microphone the way recording does: the
-system default, or exactly the `input` it is given. When that microphone
-cannot be opened, listening is refused with `RecorderError` and no other
-microphone is used.
-
-Transient dictation captures utterances without a folder. The core is callback
-and `Result` based, with no framework reactivity. A Svelte app that wants
-reactive state wraps it in its own runes layer.
-
-## VAD runtime assets (required)
-
-`@ricky0123/vad-web` fetches its worklet, Silero ONNX model, and onnxruntime
-wasm from a base path at runtime; the files are not bundled. `createVadRecorder`
-loads them from `assetBaseUrl` (default `/vad/`). Each consuming app must copy
-those files so they are served at that path, or VAD fails to initialize at
-runtime (this is not caught by `tsc`).
-
-The package resolves the source paths from its own pinned dependency tree.
-Feed them to your build's static-copy step. With Vite:
-
-```ts
-// vite.config.ts
-import { VAD_ASSET_DEST, vadAssetSources } from '@epicenter/recorder/vad-assets';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
-
-viteStaticCopy({
-	targets: vadAssetSources.map((src) => ({
-		src,
-		dest: VAD_ASSET_DEST, // 'vad' -> served at /vad/
-		rename: { stripBase: true },
-	})),
-});
-```
-
-If you set a non-default `assetBaseUrl`, serve the files at that path instead.
-
-## Tests
+Run this in `apps/whispering/packages/tauri-plugin-epicenter-recorder` after
+changing a command or a type in the plugin:
 
 ```sh
-bun test         # the browser recorder over fakes, the desktop recorder over a stand-in invoke, and VAD release
+RECORDER_WRITE_BINDINGS=1 cargo test bindings
+```
+
+Without `RECORDER_WRITE_BINDINGS`, the same test fails when the file here is
+stale.
+
+## Checks
+
+```sh
 bun run typecheck
 ```

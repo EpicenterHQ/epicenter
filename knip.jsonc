@@ -11,9 +11,10 @@
 			"project": ["scripts/**/*.ts", ".agents/skills/**/*.ts"]
 		},
 		"apps/whispering": {
-			"entry": ["scripts/*.ts", "src/**/*.test.ts"],
-			// svelte-dom.test-support.ts loads jsdom with require(Bun.resolveSync(...)).
-			"ignoreDependencies": ["jsdom"]
+			"entry": ["src/**/*.test.ts"],
+			// tsconfig.json extends `$app/tsconfig`, which SvelteKit 3 serves itself:
+			// knip would read `$app` as a package nobody lists.
+			"typescript": false
 		},
 		"packages/ui": {
 			"entry": ["scripts/*.ts"],

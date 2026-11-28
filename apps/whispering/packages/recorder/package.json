@@ -4,32 +4,25 @@
 	"private": true,
 	"type": "module",
 	"sideEffects": false,
-	"description": "Recordings written into Whispering's folder, on the desktop as they record and in the browser at Stop, microphone streams, and voice activity detection.",
+	"description": "Generated TypeScript commands and types for Whispering's native recorder plugin.",
 	"keywords": [
 		"audio",
 		"recorder",
-		"microphone",
-		"voice-activity-detection",
-		"VAD",
+		"tauri",
+		"bindings",
 		"epicenter"
 	],
 	"exports": {
-		".": "./src/index.ts",
-		"./browser": "./src/browser.ts",
-		"./vad-assets": "./src/vad-assets.ts"
+		"./native": "./src/native/bindings.gen.ts"
 	},
 	"dependencies": {
-		"@ricky0123/vad-web": "catalog:",
-		"@tauri-apps/api": "catalog:",
-		"wellcrafted": "catalog:"
+		"@tauri-apps/api": "catalog:"
 	},
 	"devDependencies": {
-		"@types/bun": "catalog:",
 		"typescript": "catalog:"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit",
-		"test": "bun test"
+		"typecheck": "tsc --noEmit"
 	},
 	"license": "AGPL-3.0-or-later"
 }

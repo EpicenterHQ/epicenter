@@ -1,7 +1,7 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "Whispering",
-	"version": "7.11.1",
+	"version": "8.0.0",
 	"identifier": "so.epicenter.whispering",
 	"build": {
 		"frontendDist": "../build",
@@ -9,9 +9,11 @@
 	},
 	"app": {
 		"windows": [],
+		"macOSPrivateApi": true,
 		"security": {
-			"capabilities": ["whispering"],
-			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+			"capabilities": ["whispering", "pill"],
+			"assetProtocol": { "enable": true, "scope": [] },
+			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; media-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 		}
 	},
 	"bundle": {

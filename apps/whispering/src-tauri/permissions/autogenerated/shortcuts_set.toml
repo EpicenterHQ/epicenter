@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shortcuts-set"
+description = "Enables the shortcuts_set command without any pre-configured scope."
+commands.allow = ["shortcuts_set"]
+
+[[permission]]
+identifier = "deny-shortcuts-set"
+description = "Denies the shortcuts_set command without any pre-configured scope."
+commands.deny = ["shortcuts_set"]

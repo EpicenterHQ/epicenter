@@ -1,8 +1,8 @@
 # Audio decoder test fixtures
 
 These fixtures belong to the transcription plugin's audio decoder
-(`audio::decode_to_pcm16k_mono`), which the standalone apps and the Epicenter
-app share. They are consumed by `../decode_fixtures.rs`.
+(`audio::decode_to_pcm16k_mono`), which Whispering and the recorder plugin's
+tests use. They are consumed by `../decode_fixtures.rs`.
 
 Each file is a 2-second 440 Hz mono sine wave at 0.5 amplitude. The audio
 content is identical; only the container/codec differs. They exercise the

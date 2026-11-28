@@ -8,12 +8,28 @@ fn main() {
     link_runtime();
     // Declaring the app's own commands makes each `allow-<command>` the one
     // permission that lets a window call it (`capabilities/whispering.json`).
-    let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
+    let manifest = tauri_build::AppManifest::new().commands(&[
+        "files_read",
+        "files_size",
+        "files_reveal",
+        "key_set",
+        "key_exists",
+        "transcribe",
+        "complete",
+        "transcribe_local",
+        "pill_show",
+        "shortcuts_set",
+        "autostart_enabled",
+        "autostart_set",
+        "pause_playback",
+        "resume_playback",
+        "paste_allowed",
+        "paste_ask",
+        "paste",
+    ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build Whispering's Tauri manifest");
 }
-
-include!("src/command_names.rs");
 
 /// Link and stage the app's transcribe-cpp runtime. The crate depends on
 /// `transcribe-cpp` directly so this script receives its `DEP_TRANSCRIBE_CPP_*`

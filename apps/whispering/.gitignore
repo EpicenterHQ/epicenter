@@ -7,7 +7,6 @@ node_modules
 .wrangler
 /.svelte-kit
 /build
-/package
 
 # OS
 .DS_Store
@@ -22,6 +21,3 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
-
-# VAD runtime assets are copied from node_modules at build time (vite.config.ts)
-/static/vad/
