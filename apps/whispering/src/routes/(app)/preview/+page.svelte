@@ -1,10 +1,10 @@
 <!--
-	Development only. Home's recorder, its needs card, and the pill, handed a
-	made-up `DictationView` instead of the real one, so every state can be
-	seen without a microphone, including states of features not built yet
-	(hold to talk, Hands-free, paste at the cursor). The screens cannot tell
-	the difference: that is the line between what they show and how
-	dictation happens.
+	Development only. Home's recorder, the line saying what dictation needs,
+	the first-run panel, and the pill, handed a made-up `DictationView`
+	instead of the real one, so every state can be seen without a
+	microphone (hold to talk, Hands-free, a paste that fell back). The
+	screens cannot tell the difference: that is the line between what they
+	show and how dictation happens.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
@@ -38,13 +38,11 @@
 
 	const ACCESSIBILITY: Need = {
 		id: 'accessibility',
-		met: false,
 		problem: 'Paste at the cursor is off: macOS has not allowed it. Text goes to your clipboard instead.',
 		fix: { label: 'Allow in System Settings', href: '/settings/output' },
 	};
 	const SERVER: Need = {
 		id: 'server',
-		met: false,
 		problem: 'No transcription server is set. Recordings are kept, without text.',
 		fix: { label: 'Set up transcription', href: '/settings/transcription' },
 	};

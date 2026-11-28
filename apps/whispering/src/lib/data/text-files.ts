@@ -9,18 +9,14 @@
  * it: an empty dictionary, or the built-in prompt, which improves with each
  * release. Removing the file goes back to that.
  */
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferErrors,
-} from 'wellcrafted/error';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import { files } from '../platform';
 
 export const DICTIONARY = 'dictionary.txt';
 export const CLEANUP_PROMPT = 'cleanup.md';
 
-export const TextFileError = defineErrors({
+const TextFileError = defineErrors({
 	ReadFailed: ({ path, cause }: { path: string; cause: unknown }) => ({
 		message: `${path} could not be read: ${extractErrorMessage(cause)}`,
 		path,
@@ -32,7 +28,6 @@ export const TextFileError = defineErrors({
 		cause,
 	}),
 });
-export type TextFileError = InferErrors<typeof TextFileError>;
 
 export const textFiles = {
 	/** The text at `path`, or null when there is none (a query's data cannot be undefined). */

@@ -40,11 +40,6 @@
 	const settings = createQuery(() => settingsQueries.read(), () => queryClient);
 	const models = createQuery(() => modelsQueries.list(), () => queryClient);
 	const SET_UP = { label: 'Set up transcription', href: '/settings/transcription' };
-	/**
-	 * What transcription still needs: a server filled in, or the chosen
-	 * model downloaded. Nothing until the settings and the models are read,
-	 * so no screen flashes a need that is met.
-	 */
 	/** Whether macOS lets a paste land; asked again when the window comes back from System Settings. */
 	const pasteAllowed = createQuery(
 		() => ({
@@ -59,7 +54,6 @@
 			? [
 					{
 						id: 'accessibility',
-						met: false,
 						problem:
 							'Paste at the cursor is off: macOS has not allowed it. Text goes to your clipboard instead.',
 						fix: { label: 'Allow it', href: '/settings/output' },
@@ -67,6 +61,11 @@
 				]
 			: [],
 	);
+	/**
+	 * What transcription still needs: a server filled in, or the chosen
+	 * model downloaded. Nothing until the settings and the models are read,
+	 * so no screen flashes a need that is met.
+	 */
 	const transcriptionNeeds = $derived.by<Need[]>(() => {
 		if (!settings.data) return [];
 		const chosen = transcriber(settings.data);
@@ -77,7 +76,6 @@
 			return [
 				{
 					id: 'model',
-					met: false,
 					problem: 'The transcription model is not downloaded. Recordings are kept, without text.',
 					fix: SET_UP,
 				},
@@ -86,7 +84,6 @@
 		return [
 			{
 				id: 'server',
-				met: false,
 				problem: 'No transcription server is set. Recordings are kept, without text.',
 				fix: SET_UP,
 			},

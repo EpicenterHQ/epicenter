@@ -5,8 +5,8 @@
 	front; on a Mac that needs the Accessibility permission, and until it is
 	granted the row says so and offers the place to grant it. Media pause is
 	off by default: it resumes only if something was playing, but it is still the
-	app reaching into another one. A browser tab can do none of these but the
-	clipboard, and its rows say so.
+	app reaching into another one. A browser tab copies and plays the sounds;
+	it cannot paste, pause media or show the pill, and those rows say so.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';

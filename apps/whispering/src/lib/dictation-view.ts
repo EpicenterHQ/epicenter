@@ -4,8 +4,7 @@
  * Screens (Home, the sidebar, the recording strip, the pill) read this and
  * nothing else about a take. `dictation.svelte.ts` is the real one: it
  * records, transcribes, and delivers. The preview page hands the same
- * screens a made-up one, so every state can be seen without a microphone,
- * and a feature that is not built yet can be designed first.
+ * screens a made-up one, so every state can be seen without a microphone.
  *
  * ```txt
  *  shortcut / hold / voice / button
@@ -73,12 +72,11 @@ export type Outcome =
 export type Fix = { label: string; href: string };
 
 /**
- * One thing dictation needs before it works end to end. Home lists the
- * unmet ones and the sidebar counts them.
+ * One thing dictation still needs before it works end to end. Home says
+ * each one, and the sidebar marks Settings while there is any.
  */
 export type Need = {
-	id: 'microphone' | 'server' | 'model' | 'accessibility' | 'shortcut';
-	met: boolean;
+	id: 'server' | 'model' | 'accessibility';
 	/** What is wrong and what still works, as the person reads it. */
 	problem: string;
 	fix: Fix;
@@ -125,5 +123,5 @@ export type DictationView = {
 	forget(id: string): void;
 };
 
-/** The view the screens under a layout read; the root layout sets the real one. */
+/** The view the screens under a layout read; the main window's layout sets the real one. */
 export const [getDictation, setDictation] = createContext<DictationView>();

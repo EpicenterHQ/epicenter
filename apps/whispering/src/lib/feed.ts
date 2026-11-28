@@ -1,6 +1,7 @@
 /**
- * The feed's pure rules: when a recording was made, its day
- * heading, and whether it matches a search. Nothing here reads a file.
+ * The feed's pure rules: when a recording was made and which are old, its
+ * day heading, whether it matches a search and the words around the match,
+ * a length as a clock, and how much was dictated. Nothing here reads a file.
  */
 
 import { localDay } from '@epicenter/app/time';

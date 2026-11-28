@@ -27,29 +27,29 @@
 </script>
 
 <Page title="Settings" description="How Whispering records, transcribes and hands you the text." class="max-w-5xl">
-		<Separator />
+	<Separator />
 	<div class="flex flex-col gap-6 md:flex-row md:gap-10">
-			<nav aria-label="Settings sections" class="flex shrink-0 gap-1 overflow-x-auto md:w-44 md:flex-col">
-				{#each SECTIONS as section (section.href)}
-					{@const active = page.url.pathname === section.href}
-					<a
-						href={section.href}
-						aria-current={active ? 'page' : undefined}
-						class={cn(
-							'flex shrink-0 items-center justify-between gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted/60',
-							active ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground',
-						)}
-					>
-						{section.label}
-						{#if marked.has(section.href)}
-							<span class="font-semibold text-destructive" aria-hidden="true">!</span>
-							<span class="sr-only">(needs attention)</span>
-						{/if}
-					</a>
-				{/each}
-			</nav>
-			<div class="flex min-w-0 max-w-2xl flex-1 flex-col gap-8">
-				{@render children()}
-			</div>
+		<nav aria-label="Settings sections" class="flex shrink-0 gap-1 overflow-x-auto md:w-44 md:flex-col">
+			{#each SECTIONS as section (section.href)}
+				{@const active = page.url.pathname === section.href}
+				<a
+					href={section.href}
+					aria-current={active ? 'page' : undefined}
+					class={cn(
+						'flex shrink-0 items-center justify-between gap-2 rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted/60',
+						active ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground',
+					)}
+				>
+					{section.label}
+					{#if marked.has(section.href)}
+						<span class="font-semibold text-destructive" aria-hidden="true">!</span>
+						<span class="sr-only">(needs attention)</span>
+					{/if}
+				</a>
+			{/each}
+		</nav>
+		<div class="flex min-w-0 max-w-2xl flex-1 flex-col gap-8">
+			{@render children()}
 		</div>
+	</div>
 </Page>

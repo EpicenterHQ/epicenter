@@ -82,86 +82,86 @@
 <svelte:window onkeydown={step} />
 
 <div class="flex min-h-0 flex-1 flex-col">
-<div class="border-b px-6 pt-8 pb-5">
-	<PageHeader title="Recordings" description="Everything you have dictated, kept on this device as files you can open." />
-</div>
-<div class="flex min-h-0 flex-1">
-	<!-- The list: hidden in a narrow window while a recording is open there. -->
-	<section
-		class={cn(
-			'flex min-h-0 w-full flex-col border-r md:w-96 md:shrink-0',
-			chosenId && 'hidden md:flex',
-		)}
-		aria-label="Recordings"
-	>
-		<div class="flex flex-col gap-2 border-b p-3">
-			<Input type="search" placeholder="Search transcripts" bind:value={search} oninput={() => (shown = PAGE)} />
-			<div class="flex flex-wrap items-center gap-1">
-				{#each Object.entries(FILTERS) as [key, { label }] (key)}
-					<Button
-						size="sm"
-						variant={filter === key ? 'secondary' : 'ghost'}
-						aria-pressed={filter === key}
-						onclick={() => {
-							filter = key as Filter;
-							shown = PAGE;
-						}}
-					>
-						{label}{key === 'attention' && attention ? ` ${attention}` : ''}
-					</Button>
-				{/each}
-				<span class="ml-auto text-xs text-muted-foreground tabular-nums">
-					{found.length.toLocaleString()}
-				</span>
+	<div class="border-b px-6 pt-8 pb-5">
+		<PageHeader title="Recordings" description="Everything you have dictated, kept on this device as files you can open." />
+	</div>
+	<div class="flex min-h-0 flex-1">
+		<!-- The list: hidden in a narrow window while a recording is open there. -->
+		<section
+			class={cn(
+				'flex min-h-0 w-full flex-col border-r md:w-96 md:shrink-0',
+				chosenId && 'hidden md:flex',
+			)}
+			aria-label="Recordings"
+		>
+			<div class="flex flex-col gap-2 border-b p-3">
+				<Input type="search" placeholder="Search transcripts" bind:value={search} oninput={() => (shown = PAGE)} />
+				<div class="flex flex-wrap items-center gap-1">
+					{#each Object.entries(FILTERS) as [key, { label }] (key)}
+						<Button
+							size="sm"
+							variant={filter === key ? 'secondary' : 'ghost'}
+							aria-pressed={filter === key}
+							onclick={() => {
+								filter = key as Filter;
+								shown = PAGE;
+							}}
+						>
+							{label}{key === 'attention' && attention ? ` ${attention}` : ''}
+						</Button>
+					{/each}
+					<span class="ml-auto text-xs text-muted-foreground tabular-nums">
+						{found.length.toLocaleString()}
+					</span>
+				</div>
 			</div>
-		</div>
 
-		<div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-2" data-list>
-			{#if list.isPending}
-				<div class="flex flex-1 items-center justify-center"><Spinner /></div>
-			{:else if list.isError}
-				<p class="p-2 text-sm text-destructive">{list.error.message}</p>
-			{:else if list.data.length === 0}
-				<Empty.Root>
-					<Empty.Header>
-						<Empty.Media variant="icon"><ListIcon /></Empty.Media>
-						<Empty.Title>No recordings yet</Empty.Title>
-						<Empty.Description>Record from <a href="/">Home</a>, or press ⌘⇧; in any app.</Empty.Description>
-					</Empty.Header>
-				</Empty.Root>
-			{:else}
-				{#each groups as group (group.label)}
-					<section class="flex flex-col">
-						<h3 class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-							{group.label}
-						</h3>
-						{#each group.items as recording (recording.id)}
-							<RecordingRow {recording} query={search} selected={recording.id === open?.id} />
-						{/each}
-					</section>
+			<div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-2" data-list>
+				{#if list.isPending}
+					<div class="flex flex-1 items-center justify-center"><Spinner /></div>
+				{:else if list.isError}
+					<p class="p-2 text-sm text-destructive">{list.error.message}</p>
+				{:else if list.data.length === 0}
+					<Empty.Root>
+						<Empty.Header>
+							<Empty.Media variant="icon"><ListIcon /></Empty.Media>
+							<Empty.Title>No recordings yet</Empty.Title>
+							<Empty.Description>Record from <a href="/">Home</a>, or press ⌘⇧; in any app.</Empty.Description>
+						</Empty.Header>
+					</Empty.Root>
 				{:else}
-					<p class="p-3 text-sm text-muted-foreground">
-						{search.trim() ? `No transcript matches "${search}".` : `No recordings here.`}
-					</p>
-				{/each}
-				{#if found.length > shown}
-					{#key shown}
-						<div {@attach loadMoreWhenSeen} class="flex justify-center py-4"><Spinner /></div>
-					{/key}
+					{#each groups as group (group.label)}
+						<section class="flex flex-col">
+							<h3 class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								{group.label}
+							</h3>
+							{#each group.items as recording (recording.id)}
+								<RecordingRow {recording} query={search} selected={recording.id === open?.id} />
+							{/each}
+						</section>
+					{:else}
+						<p class="p-3 text-sm text-muted-foreground">
+							{search.trim() ? `No transcript matches "${search}".` : `No recordings here.`}
+						</p>
+					{/each}
+					{#if found.length > shown}
+						{#key shown}
+							<div {@attach loadMoreWhenSeen} class="flex justify-center py-4"><Spinner /></div>
+						{/key}
+					{/if}
 				{/if}
+			</div>
+		</section>
+
+		<!-- The reading pane: in a narrow window, only once a recording is chosen. -->
+		<div class={cn('min-h-0 min-w-0 flex-1 flex-col', chosenId ? 'flex' : 'hidden md:flex')}>
+			{#if open}
+				{#key open.id}
+					<RecordingDetail recording={open} />
+				{/key}
+			{:else if list.data?.length}
+				<p class="m-auto text-sm text-muted-foreground">Choose a recording.</p>
 			{/if}
 		</div>
-	</section>
-
-	<!-- The reading pane: in a narrow window, only once a recording is chosen. -->
-	<div class={cn('min-h-0 min-w-0 flex-1 flex-col', chosenId ? 'flex' : 'hidden md:flex')}>
-		{#if open}
-			{#key open.id}
-				<RecordingDetail recording={open} />
-			{/key}
-		{:else if list.data?.length}
-			<p class="m-auto text-sm text-muted-foreground">Choose a recording.</p>
-		{/if}
 	</div>
-</div>
 </div>

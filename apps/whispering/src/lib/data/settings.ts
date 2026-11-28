@@ -33,11 +33,7 @@
  */
 import { type Static, Type } from 'typebox';
 import { Value } from 'typebox/value';
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferErrors,
-} from 'wellcrafted/error';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import { files } from '../platform';
 import type { Server } from '../transcription-server';
@@ -145,7 +141,7 @@ export function cleanupServer(settings: Settings): Server | undefined {
 	return baseUrl ? { baseUrl, model } : undefined;
 }
 
-export const SettingsError = defineErrors({
+const SettingsError = defineErrors({
 	ReadFailed: ({ cause }: { cause: unknown }) => ({
 		message: `${PATH} could not be read: ${extractErrorMessage(cause)}`,
 		cause,
@@ -155,13 +151,12 @@ export const SettingsError = defineErrors({
 		cause,
 	}),
 });
-export type SettingsError = InferErrors<typeof SettingsError>;
 
 /**
  * The settings `json` holds. Each key is checked on its own, so a missing
  * or mistyped value costs that one setting and no other.
  */
-export function readSettings(json: unknown): Settings {
+function readSettings(json: unknown): Settings {
 	const held: Record<string, unknown> =
 		typeof json === 'object' && json !== null ? { ...json } : {};
 	return Object.fromEntries(

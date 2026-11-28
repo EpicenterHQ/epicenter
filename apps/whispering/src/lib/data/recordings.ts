@@ -12,11 +12,7 @@
  * is deleted with it, so this module owns both files.
  */
 import { changeMarkdown, readMarkdown } from '@epicenter/app/markdown';
-import {
-	defineErrors,
-	extractErrorMessage,
-	type InferErrors,
-} from 'wellcrafted/error';
+import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import { Ok } from 'wellcrafted/result';
 import { olderThan, recordedAt } from '../feed';
 import { files } from '../platform';
@@ -41,7 +37,7 @@ export type Recording = {
 	audio: string | undefined;
 };
 
-export const RecordingsError = defineErrors({
+const RecordingsError = defineErrors({
 	ListFailed: ({ cause }: { cause: unknown }) => ({
 		message: `Recordings could not be read: ${extractErrorMessage(cause)}`,
 		cause,
@@ -62,7 +58,6 @@ export const RecordingsError = defineErrors({
 		cause,
 	}),
 });
-export type RecordingsError = InferErrors<typeof RecordingsError>;
 
 /** The id and kind of a file in `recordings/`, or undefined for a file that is neither a note nor audio. */
 function parseName(name: string) {

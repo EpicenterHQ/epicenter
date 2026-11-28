@@ -1,7 +1,8 @@
 <!--
-	The floating pill: a take seen from any app, in one line. It will live in
-	its own small window that never takes focus; until that exists, the
-	preview page shows it. It reads only `DictationView`.
+	The floating pill: a take seen from any app, in one line. It is drawn in
+	its own small window that never takes focus (`pill/`), and on the
+	preview page. It reads only `DictationView`, which the pill's window
+	fills from what the main window sends.
 
 	It shows only while something is happening. Recording: the clock, the
 	level, Cancel and Stop; a held key shows "Release" and no buttons, since letting go

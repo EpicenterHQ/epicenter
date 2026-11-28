@@ -583,6 +583,21 @@ function createDictation() {
 			return toastOnError(removed, 'Could not throw the recording away');
 	}
 
+	/**
+	 * The hold-to-talk keys went down, or came up. Down starts a take
+	 * and up finishes it; one let go within `TAP_MS` was a slip of the
+	 * hand, and is thrown away.
+	 */
+	function hold(down: boolean) {
+		holding = down;
+		if (down) {
+			if (take.kind === 'idle' && !listening) void start('hold');
+			return;
+		}
+		if (take.kind !== 'recording' || take.trigger !== 'hold') return;
+		void (Date.now() - take.startedAt < TAP_MS ? cancel() : stop());
+	}
+
 	/** Save a transcript of a recording, in the recordings' one write queue. */
 	const save = (change: {
 		id: string;
@@ -622,26 +637,11 @@ function createDictation() {
 		},
 
 		/**
-		 * The hold-to-talk keys went down, or came up. Down starts a take
-		 * and up finishes it; one let go within `TAP_MS` was a slip of the
-		 * hand, and is thrown away.
-		 */
-		hold(down: boolean) {
-			holding = down;
-			if (down) {
-				if (take.kind === 'idle' && !listening) void start('hold');
-				return;
-			}
-			if (take.kind !== 'recording' || take.trigger !== 'hold') return;
-			void (Date.now() - take.startedAt < TAP_MS ? cancel() : stop());
-		},
-
-		/**
 		 * A global shortcut went down, or came up. This is the one place that
 		 * says what each does.
 		 */
 		press(name: ShortcutName, down: boolean) {
-			if (name === 'hold') return this.hold(down);
+			if (name === 'hold') return hold(down);
 			if (!down) return;
 			if (name === 'cancel') return void cancel();
 			if (name === 'toggle') return this.toggle('shortcut');

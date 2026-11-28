@@ -52,7 +52,7 @@ export type Files = {
 	reveal: (() => Promise<Result<undefined, FilesError>>) | null;
 };
 
-export const refused = (message: string) =>
+const refused = (message: string) =>
 	Err<FilesError>({ name: 'Refused', message });
 export const failed = (message: string) =>
 	Err<FilesError>({ name: 'Io', message });

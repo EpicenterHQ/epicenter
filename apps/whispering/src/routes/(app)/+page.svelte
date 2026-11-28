@@ -56,13 +56,11 @@
 		const { error } = await modelDownloads.start(id);
 		downloadError = error?.message;
 	}
-
 </script>
 
 <svelte:head><title>Whispering</title></svelte:head>
 
 <Page title="Whispering" description="Speak in any app, and the text is on your clipboard.">
-
 	{#if stats.words > 0}
 		<dl class="grid grid-cols-3 gap-3">
 			{#each [
