@@ -11,17 +11,17 @@ Keep a component’s own props and state types in the component. Several files c
 
 ## Shared contracts
 
-The recorder package defines [`Recorder`](../../../../apps/whispering-old/packages/recorder/src/recording.ts) in `recording.ts`. The [browser](../../../../apps/whispering-old/packages/recorder/src/browser.ts) and [desktop](../../../../apps/whispering-old/packages/recorder/src/tauri.ts) implementations both check their objects against it with `satisfies Recorder`. The [package entry point](../../../../apps/whispering-old/packages/recorder/src/index.ts) exposes the same contract whichever recorder it selects:
+Whispering defines [`Recorder`](../../../../apps/whispering/src/lib/platform/recorder/recorder.ts) in `recorder.ts`, beside its two implementations. The [desktop](../../../../apps/whispering/src/lib/platform/recorder/native.ts) one annotates its object `nativeRecorder: Recorder`, and the [browser](../../../../apps/whispering/src/lib/platform/recorder/browser.ts) one is a factory that returns `Recorder`. The [platform index](../../../../apps/whispering/src/lib/platform/index.ts) picks one, and callers get the same contract either way:
 
 ```typescript
-export const recorder: Recorder = isTauri() ? shellRecorder : pageRecorder;
+export const recorder = desktop ? nativeRecorder : createBrowserRecorder(files);
 ```
 
 ## Factory Return Types Should Follow the Factory
 
 When an exported type is the public handle returned by one `create*` factory, the factory return object is the source of truth.
 
-Whispering names [`Library`](../../../../apps/whispering-old/src/lib/library.svelte.ts) immediately after `createLibrary`, in the same file:
+Name the type immediately after the factory, in the same file. For a `createLibrary` factory:
 
 ```typescript
 export type Library = ReturnType<typeof createLibrary>;

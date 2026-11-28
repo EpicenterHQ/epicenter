@@ -46,10 +46,12 @@ Keep small one-off element behavior beside the element. Extract an attachment
 when it names meaningful setup or cleanup, shares a rule, or provides function
 identity that its consumer observes. See [function identity](#when-a-name-earns-its-place).
 
-Whispering's `RecordingDetail.svelte` and `TransformationDetail.svelte` use
-`{@attach (node: HTMLElement) => node.focus()}` on their back controls. Follow
-that shape for small one-off element behavior; inspect its dependencies and
-the control's intended focus behavior before moving it.
+Whispering's recordings page
+(`apps/whispering/src/routes/(app)/recordings/+page.svelte`) puts
+`{@attach loadMoreWhenSeen}` on the element at the end of its list. The function
+starts an `IntersectionObserver` and returns the cleanup that disconnects it.
+Follow that shape for an attachment with setup and cleanup; inspect what it
+reads before moving it.
 
 # Props Pattern
 
