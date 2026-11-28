@@ -18,8 +18,9 @@ running a tool. If so, it does. A read follows the same test: it is an
 action when the answer takes code to compute, such as a board built from
 many records, and a file read otherwise.
 
-A page can't read files, so it reaches its records through actions. When
-only the page calls one, mark it `mcp: false`.
+An app's UI runs in the browser and can't read the home's files, so it
+reaches its records through actions. When only the UI calls one, mark it
+`mcp: false`.
 
 An action fetches the secrets it needs when it runs. The person stores
 them in the secrets manager.
