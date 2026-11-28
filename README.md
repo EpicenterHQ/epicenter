@@ -110,7 +110,7 @@ Applications under `apps/` are programs that work without an Epicenter.
 
 | Package | What it is |
 | --- | --- |
-| [`@epicenter/app`](packages/app) | What your Epicenter's `epicenter.ts` imports (`defineData`, `defineAction`, `defineEpicenter`, fields), the client a page calls actions with, and the `epicenter` command, which serves every action to the command line and MCP. Your Epicenter depends on it and runs it with Bun. Git stores your Epicenter, one private root repository, and the command does not wrap it. Set up to publish; not on npm yet. |
+| [`@epicenter/app`](packages/app) | What your Epicenter's `epicenter.ts` imports (`defineData`, `defineAction`, `defineEpicenter`, fields), the client an app's UI calls actions with, and the `epicenter` command, which serves every action to the command line and MCP. Your Epicenter depends on it and runs it with Bun. Git stores your Epicenter, one private root repository, and the command does not wrap it. Set up to publish; not on npm yet. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Whispering's transcription models: every source of models as an endpoint, one OpenAI-compatible transcription client, and the model picker. |
 

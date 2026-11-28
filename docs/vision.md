@@ -83,7 +83,7 @@ with other tools.
 | Rule | What it lets us remove | What we give up |
 | --- | --- | --- |
 | 1. **Your Epicenter is a folder, and every kind of record has one source of truth.** The folder is one Git repository and one Bun project. See [where edits count](#where-edits-count). | Reconciling independent stores that both claim to hold the same record. | Editing both an app's live data and its export and expecting the edits to merge. |
-| 2. **One running `serve` loads and runs all app code.** It reads code and packages when it starts, and you restart it to change them. The command, pages, and agents are its clients. | Separate CLI execution and fallback; cross-process action locks and their waits. | Actions while `serve` is stopped; process isolation between apps; automatic transactions across a whole action. |
+| 2. **One running `serve` loads and runs all app code.** It reads code and packages when it starts, and you restart it to change them. The command, UIs, and agents are its clients. | Separate CLI execution and fallback; cross-process action locks and their waits. | Actions while `serve` is stopped; process isolation between apps; automatic transactions across a whole action. |
 | 3. **What you make belongs in files you can use without Epicenter.** An action takes JSON and answers `{ data, error }`, and it is described in plain JSON. What must outlast the call goes in a file, and Git keeps its history. | Mandatory SDK access to records; a second platform store for run histories, replay, and receipts. | Automatic recovery of unsaved progress after a reload; an automatic audit of every attempt. An app saves any receipt it needs. |
 | 4. **Your Epicenter lives on one computer you control and keep running.** Your devices and agents reach it through your private connection. Sign-ins and caches stay there: `.epicenter/` keeps itself out of Git. Serve does not yet refuse a `.env` that Git would commit, so the owner's `.gitignore` guards it. | A full Epicenter on every device and a separate sign-in system for it. | Running actions while the computer is unreachable, automatic failover, and public access with separate caller permissions. |
 | 5. **The code is yours.** Apps are editable code that you or your agents can inspect and adapt. You choose which code to trust. The only setting is the port. | Platform settings and extension systems for every specialized need; sandboxing each trusted app. | Configuring every behavior without code; isolation from a faulty app. You are responsible for what you run. |
@@ -210,7 +210,7 @@ author's apps and do not ship here.
   and copies the text with no network, and keeps each recording as files in its own
   data directory ([what Whispering stores](../apps/whispering/README.md#what-it-stores)). It
   needs no Epicenter and no account.
-- **A voice reply from the phone.** You record a reply in an app's page. Its
+- **A voice reply from the phone.** You record a reply in an app's UI. Its
   action hands the audio to a speech program installed on your computer, run
   as a command with the file's path, and reads the text it prints. Handy does
   this today; Whispering's command line can transcribe a file, and the switch to it is next
@@ -279,7 +279,7 @@ Whispering is whole at rung 1.
 | Record history | a commit you make | never |
 | Back up your Epicenter | [back up the files and any live app stores you want to recover](#where-edits-count) | never |
 | Reach | MCP | never |
-| An interface | an agent or the terminal | you want to see or tap: an app's page, a web page that reads and changes the app only by calling its actions. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
+| An interface | an agent or the terminal | you want to see or tap: an app's UI, a web page that reads and changes the app only by calling its actions. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
 | Run something later | a scheduled action in `epicenter.ts` | catch-up after downtime |
 
 ## Next, not yet, and never
