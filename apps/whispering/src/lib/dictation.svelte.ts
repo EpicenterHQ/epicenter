@@ -59,9 +59,6 @@ const MIN_VOICED_MS = 150;
  */
 const TURN_WAIT_MS = 30_000;
 
-/** How long the app in front gets to take a paste before the clipboard changes again. */
-const PASTE_LANDS_MS = 150;
-
 const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 /** How long a take may send only silence before the screens point it out. */
@@ -256,7 +253,8 @@ function createDictation() {
 		const deleted = await runMutation(
 			queryClient,
 			recordingsMutations.deleteOlderThan,
-			{ keepDays },
+			// A recording still being transcribed keeps its files until it is done.
+			{ keepDays, except: [...transcribing] },
 		);
 		if (deleted.error) toastOnError(deleted, 'Could not delete old recordings');
 	}
@@ -360,9 +358,11 @@ function createDictation() {
 	 * app is Whispering itself; a paste that cannot be made leaves the text
 	 * on the clipboard and says so.
 	 *
-	 * In a hands-free session the clipboard ends up holding everything said
-	 * so far, joined by spaces; each phrase is pasted on its own, with a
-	 * space before every one but the first.
+	 * In a hands-free session without paste, the clipboard holds everything
+	 * said so far, joined by spaces. With paste, each phrase is pasted on
+	 * its own, with a space before every one but the first, and the
+	 * clipboard is left holding that phrase: writing the whole session after
+	 * the keys would race an app that reads the clipboard late.
 	 *
 	 * Answers where the text went, or undefined when it could not be copied.
 	 */
@@ -395,11 +395,6 @@ function createDictation() {
 			return 'clipboard' as const;
 		}
 		const pasted = await paste.press();
-		// The app in front reads the clipboard a moment after the keys.
-		if (whole !== piece) {
-			if (!pasted.error) await wait(PASTE_LANDS_MS);
-			await copy(whole);
-		}
 		if (pasted.error) {
 			outcome = { kind: 'copiedInstead', id, why: pasted.error.message };
 			return 'clipboard' as const;

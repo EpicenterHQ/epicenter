@@ -19,7 +19,7 @@ tauri-plugin-autostart = "2"
 # Presses the paste keys in the app in front (`paste.rs`).
 enigo = "0.5.0"
 log = "0.4"
-# Sends a recording to the transcription server (`transcribe.rs`).
+# Sends a recording to the transcription server (`servers.rs`).
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -4,7 +4,7 @@
 	permission. Paste at the cursor also presses the paste keys in the app in
 	front; on a Mac that needs the Accessibility permission, and until it is
 	granted the row says so and offers the place to grant it. Media pause is
-	off by default: it plays again only what was playing, but it is still the
+	off by default: it resumes only if something was playing, but it is still the
 	app reaching into another one. A browser tab can do none of these but the
 	clipboard, and its rows say so.
 -->
@@ -64,7 +64,7 @@
 <SettingsSection title="While recording">
 	<SettingsRow
 		label="Pause music and video"
-		description={desktopOnly ?? 'Plays again, after the take, only what was playing. With Hands-free on, it stays paused while Whispering listens.'}
+		description={desktopOnly ?? 'Resumes after the take, and only if something was playing. With Hands-free on, it stays paused while Whispering listens.'}
 		for="pause-media"
 		disabled={!paste.available}
 	>

@@ -89,7 +89,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Option<Request>, 
             "--model" => model = Some(args.next().ok_or("--model needs a model's id or name")?),
             "--json" => json = true,
             "--list-models" => list = true,
-            // Anything else is the system's own (macOS passes some at launch).
+            // What the system passes: at login, and macOS's process serial number.
+            crate::autostart::HIDDEN => {}
+            system if system.starts_with("-psn_") => {}
+            // A flag mistyped must not open the window and leave a script waiting.
+            unknown if unknown.starts_with("--") => {
+                return Err(format!("{unknown} is not a flag Whispering knows"))
+            }
             _ => {}
         }
     }
@@ -329,7 +335,11 @@ mod tests {
     #[test]
     fn with_nothing_asked_the_app_opens() {
         assert_eq!(parse(args("")), Ok(None));
-        assert_eq!(parse(args("-psn_0_12345 --json")), Ok(None));
+        assert_eq!(parse(args("-psn_0_12345 --json --hidden")), Ok(None));
+        assert!(
+            parse(args("--transcribe a.wav")).is_err(),
+            "a mistyped flag"
+        );
     }
 
     #[test]

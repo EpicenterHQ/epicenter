@@ -19,6 +19,41 @@ use tauri::{AppHandle, Runtime};
 extern "C" {
     /// Whether this process may control the computer (Accessibility).
     fn AXIsProcessTrusted() -> u8;
+    /// The same, and with the prompt option, has macOS ask the person and
+    /// list this app under Accessibility so it can be switched on there.
+    fn AXIsProcessTrustedWithOptions(
+        options: core_foundation_sys::dictionary::CFDictionaryRef,
+    ) -> u8;
+    /// The option's key: a boolean, whether to prompt.
+    static kAXTrustedCheckOptionPrompt: core_foundation_sys::string::CFStringRef;
+}
+
+/// Have macOS ask for Accessibility and add Whispering to its list. Until
+/// this runs once, the list in System Settings does not show the app at
+/// all, and there is nothing there to switch on.
+#[cfg(target_os = "macos")]
+fn prompt_for_accessibility() {
+    use core_foundation_sys::base::{kCFAllocatorDefault, CFRelease};
+    use core_foundation_sys::dictionary::{
+        kCFTypeDictionaryKeyCallBacks, kCFTypeDictionaryValueCallBacks, CFDictionaryCreate,
+    };
+    use core_foundation_sys::number::kCFBooleanTrue;
+    // SAFETY: a one-entry dictionary of two CoreFoundation constants, made,
+    // read by the call, and released here.
+    unsafe {
+        let keys = [kAXTrustedCheckOptionPrompt.cast::<std::ffi::c_void>()];
+        let values = [kCFBooleanTrue.cast::<std::ffi::c_void>()];
+        let options = CFDictionaryCreate(
+            kCFAllocatorDefault,
+            keys.as_ptr(),
+            values.as_ptr(),
+            1,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks,
+        );
+        AXIsProcessTrustedWithOptions(options);
+        CFRelease(options.cast());
+    }
 }
 
 /// Where System Settings lists the apps allowed Accessibility.
@@ -37,13 +72,17 @@ pub fn paste_allowed() -> bool {
     true
 }
 
-/// Open the place the person allows pasting: System Settings' Accessibility
-/// list on a Mac. Elsewhere there is nothing to allow.
+/// Ask for the permission and open the place the person grants it: macOS
+/// lists Whispering under Accessibility, and System Settings opens there.
+/// Elsewhere there is nothing to allow.
 #[tauri::command]
 pub fn paste_ask<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use tauri_plugin_opener::OpenerExt;
+        if !paste_allowed() {
+            prompt_for_accessibility();
+        }
         app.opener()
             .open_url(ACCESSIBILITY_SETTINGS, None::<&str>)
             .map_err(|error| format!("System Settings could not be opened: {error}"))

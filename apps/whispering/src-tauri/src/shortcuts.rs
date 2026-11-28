@@ -51,14 +51,23 @@ pub fn shortcuts_set<R: Runtime>(
         if shortcuts.get(name) == Some(keys) {
             return true;
         }
-        if let Err(error) = system.unregister(keys.as_str()) {
-            log::warn!("The shortcut {keys} could not be let go: {error}");
+        match system.unregister(keys.as_str()) {
+            Ok(()) => false,
+            // Still held by the system, so still listed: the next call
+            // tries again, and nothing tries to hold it a second time.
+            Err(error) => {
+                log::warn!("The shortcut {keys} could not be let go: {error}");
+                true
+            }
         }
-        false
     });
     let mut problems = HashMap::new();
     for (name, keys) in shortcuts {
-        if keys.is_empty() || held.contains_key(&name) {
+        if keys.is_empty() || held.get(&name) == Some(&keys) {
+            continue;
+        }
+        if held.contains_key(&name) {
+            problems.insert(name, "Its old keys could not be let go.".to_string());
             continue;
         }
         let shortcut = match keys.parse::<Shortcut>() {

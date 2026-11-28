@@ -198,16 +198,24 @@ export const recordings = {
 
 	/**
 	 * Delete every recording made more than `keepDays` days ago, note and
-	 * audio. Answers how many went.
+	 * audio, but for the ids in `except`. Answers how many went.
 	 */
-	async deleteOlderThan({ keepDays }: { keepDays: number }) {
+	async deleteOlderThan({
+		keepDays,
+		except = [],
+	}: {
+		keepDays: number;
+		except?: readonly string[];
+	}) {
 		const listed = await files.list(DIR);
 		if (listed.error)
 			return RecordingsError.ListFailed({ cause: listed.error });
 		const ids = new Set(
 			listed.data.flatMap((name) => parseName(name)?.id ?? []),
 		);
-		const old = olderThan([...ids], keepDays, new Date());
+		const old = olderThan([...ids], keepDays, new Date()).filter(
+			(id) => !except.includes(id),
+		);
 		for (const id of old) {
 			const deleted = await recordings.delete({ id });
 			if (deleted.error) return deleted;

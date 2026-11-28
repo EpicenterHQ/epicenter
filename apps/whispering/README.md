@@ -103,6 +103,11 @@ src/
     loudness.ts              a microphone's level as how loud it sounds, for every meter
     feed.ts                  pure rules: a recording's time, day, search match, and how much was dictated
     transcription-server.ts  the server's address and model, and presets
+packages/                    what the app builds from, each with its own README
+  recorder/                  the native recorder's TypeScript commands and types
+  tauri-plugin-epicenter-recorder/  the microphone: takes, meters, hands-free
+  transcription/             transcribe.cpp, and the models it runs
+  whispering-files/          the path rule the recorder checks a take's path with
 src-tauri/src/
   cli.rs                     `--transcribe-file` and `--list-models`: a transcript from a terminal, with no window
   files.rs                   reads many files in one call, sizes a directory, opens the folder
@@ -206,8 +211,8 @@ The layers answer different questions:
 - **Takes are transcribed side by side and delivered in the order they
   were made.** Each waits up to thirty seconds for the one before it, so
   a long sentence still lands before the short one said after it. In a
-  hands-free session the clipboard holds everything said so far, joined by
-  spaces. Refused: delivering each take as its transcript arrives, which
+  hands-free session without paste, the clipboard holds everything said
+  so far, joined by spaces. Refused: delivering each take as its transcript arrives, which
   left the clipboard holding whichever finished last.
 - **The text always reaches the clipboard; paste at the cursor presses
   the paste keys as well.** The clipboard is never put back as it was, so
@@ -216,16 +221,23 @@ The layers answer different questions:
   and says "copied instead" when it is not granted. Nothing is pasted
   while Whispering's own window is in front. With hands-free on, each
   phrase is pasted as it is ready, so whatever the microphone hears as
-  speech is typed into the app in front; the setting says so. Refused:
+  speech is typed into the app in front; the setting says so. The first
+  time, "Allow in System Settings" has macOS ask and list Whispering under
+  Accessibility, where it is otherwise not shown at all. Refused:
   borrowing the clipboard and restoring it after the paste, which needs a
   native copy of every clipboard format and a guess at when the other app
   has read it.
-- **Media pause plays again only what was playing, and lasts a whole
-  hands-free session.** It is Whispering 7's code: the system's media
-  controls on each platform. Refused: pausing at each phrase, since the
-  music itself would be heard as speech before it paused.
+- **Media pause resumes only when something was playing, and lasts a
+  whole hands-free session.** It is Whispering 7's code: the system's
+  media controls on each platform. On a Mac it cannot ask which app is
+  playing, so it resumes the system's current player when any app had
+  sound going as the take began. Refused: pausing at each phrase, since
+  the music itself would be heard as speech before it paused.
 - **The start and stop sounds mark a take a person started, and
-  hands-free going on and off.** They are two notes made in the page.
+  hands-free going on and off.** They are two notes made in the page,
+  each on an audio output that closes with the note: one left open would
+  count as sound playing, and media pause would resume music the person
+  had paused.
   Refused: a sound for each hands-free phrase, which the open microphone
   would record into the next take.
 - **Closing the window does not stop dictation on a Mac.** The window
@@ -239,7 +251,8 @@ The layers answer different questions:
   repeats it, so the two cannot disagree.
 - **Escape cancels a take, and is held only while one records.** Outside
   a take Whispering does not hold the key, so Escape is every other
-  app's. Rust leaves a shortcut alone when its keys have not changed, so
+  app's. `shortcut.escapeCancels` turns it off, and a hands-free take has
+  no cancel: Stop listening ends it. Rust leaves a shortcut alone when its keys have not changed, so
   holding and letting go of Escape never drops a hold-to-talk release.
   Refused: a cancel chord held all the time, one more shortcut to learn
   for something only ever wanted during a take.
