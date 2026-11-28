@@ -70,7 +70,7 @@ export function typed() {
 		run: () => Err({ name: 'Loose' as string, message: 'x' }),
 	});
 	defineEpicenter({
-		// @ts-expect-error: a loose name would make every name a page sees a string.
+		// @ts-expect-error: a loose name would make every name a UI sees a string.
 		apps: { counter: { description: 'Counts', actions: { loose } } },
 	});
 

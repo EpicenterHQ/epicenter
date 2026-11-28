@@ -1,6 +1,6 @@
 /**
  * JSON values as every surface carries them. It uses only web APIs, so a
- * page's bundle can carry it.
+ * UI's bundle can carry it.
  */
 
 /** A JSON value. */

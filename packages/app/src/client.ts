@@ -1,5 +1,5 @@
 /**
- * How a page calls a home's actions through serve:
+ * How a UI calls a home's actions through serve:
  *
  * ```ts
  * import { connect } from '@epicenter/app/client';
@@ -10,13 +10,13 @@
  * await epicenter.flights.daily({}, { onUpdate: (update) => show(update) });
  * ```
  *
- * The home is imported as a type, so the page's bundle carries no app code.
+ * The home is imported as a type, so the UI's bundle carries no app code.
  * Each call posts its input to `/actions/<app>/<action>` and resolves to a
  * Result: what the action returned, the action's own error,
  * or one of the platform's: `NotStarted` (it never began), `Threw` (it began
  * and threw) or `Unreachable` (the outcome is unknown). A call never throws:
  * an input JSON cannot carry, such as a BigInt, is `NotStarted`, since
- * nothing was sent. An error does not say what persisted; a page rereads
+ * nothing was sent. An error does not say what persisted; a UI rereads
  * its records to learn that.
  *
  * The client is a Proxy, and neither it nor an app on it answers `then`, so
@@ -52,7 +52,7 @@ type ReturnedBy<A> = A extends (input: never) => infer Out
 	? Awaited<Out>
 	: never;
 
-/** What action `A` returns to a page: what its `run` returned. */
+/** What action `A` returns to a UI: what its `run` returned. */
 export type ActionOutput<A> = Extract<
 	Exclude<ReturnedBy<A>, Err<never>>,
 	Ok<unknown>
@@ -80,7 +80,7 @@ type OptionsArg<A> = [ActionUpdate<A>] extends [never]
 	: [options?: CallOptions<ActionUpdate<A>>];
 
 /**
- * One action as a page calls it: a function of its input, and of
+ * One action as a UI calls it: a function of its input, and of
  * `{ onUpdate, signal }` when the action sends updates. Abandoning the call
  * aborts the action's signal and answers Unreachable. An action without
  * updates takes one argument, so helpers like Wellcrafted's

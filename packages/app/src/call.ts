@@ -1,5 +1,5 @@
 /**
- * The HTTP contract between serve and its callers, a page and the command
+ * The HTTP contract between serve and its callers, a UI and the command
  * alike: the listing, the header that names a home, and one action call.
  * A call is `POST /actions/<app>/<action>` with the input as JSON, answered
  * by JSON lines, `{"update": value}` for each update, then
@@ -10,7 +10,7 @@
  * `NotStarted`, since nothing ran, and anything else is `Unreachable`. A 200
  * proves nothing more: one whose lines are not frames, whose answer is not
  * exactly `{ data, error }`, or whose stream ends with no answer, is
- * `Unreachable` too. This module uses only web APIs, so a page's bundle can
+ * `Unreachable` too. This module uses only web APIs, so a UI's bundle can
  * carry it.
  */
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
@@ -125,7 +125,7 @@ export async function fetchServe(
 	return statusFailed(response);
 }
 
-/** Tell the page about a listener's failure without ending the call. */
+/** Tell the UI about a listener's failure without ending the call. */
 const report = (cause: unknown) =>
 	queueMicrotask(() => {
 		throw cause;

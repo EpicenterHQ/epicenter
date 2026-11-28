@@ -1,7 +1,7 @@
 /**
  * The `epicenter` command. It runs no app code: it finds its home by walking
  * up to the marker, and asks that home's serve, reading the listing at
- * `GET /actions/` and calling an action as a page does, with `postAction`.
+ * `GET /actions/` and calling an action as a UI does, with `postAction`.
  * It never starts serve and never runs an action in its place.
  * `epicenter serve` is the process that imports the home's `epicenter.ts`.
  */

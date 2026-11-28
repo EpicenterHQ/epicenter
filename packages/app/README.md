@@ -1,8 +1,9 @@
 # @epicenter/app
 
 What a home's `epicenter.ts` imports to define its records, apps and
-actions; the client a page calls those actions through; and the `epicenter`
-command, which serves them to the command line, agents (MCP) and pages.
+actions; the client an app's UI (its browser side) calls those actions
+through; and the `epicenter` command, which serves them to the command
+line, agents (MCP) and UIs.
 A home depends on it and runs it with Bun.
 
 A home is one program, composed in its root `epicenter.ts`. The rules it
@@ -122,7 +123,7 @@ Serve makes `.epicenter/` readable by its owner alone (0700), with its own
 
 `defineAction({ description, input, run })` types `run`'s input by its
 fields. `run` returns `Ok(data)` or `Err(error)`, where `data` is JSON:
-`null` for nothing, never `undefined`, so a page receives the type `run`
+`null` for nothing, never `undefined`, so a UI receives the type `run`
 returned. A property may be `undefined`; it arrives absent. `run` may
 report progress through its second argument:
 
@@ -133,7 +134,7 @@ async run({ recheck = false }, update: Update<{ checked: number }>) {
 }
 ```
 
-Its third argument, `signal`, aborts when the caller is gone: a page closed
+Its third argument, `signal`, aborts when the caller is gone: a UI was closed
 or abandoned the call, the command stopped, or the connection dropped. An
 action that ignores it runs to the end. One that only streams, such as a
 feed of changes, returns when it aborts.
@@ -165,7 +166,7 @@ changing code. Every other command asks serve and runs no app code.
 | Route | What it answers |
 | --- | --- |
 | `POST /actions/<app>/<action>` | JSON lines: `{"update": ...}` for each update, then `{"answer": {data, error}}` |
-| `GET /apps/<app>/<file>` | the app's built page, from `apps/<app>/ui/dist/` |
+| `GET /apps/<app>/<file>` | the app's built UI, from `apps/<app>/ui/dist/` |
 | `GET /data/<path>` | a file's bytes, with range requests for video and audio |
 | `PUT /data/<path>` | stores a file: 201 when new, 204 when it replaced one and kept the old copy |
 | `POST /` | MCP, one tool per action not marked `mcp: false`, named `<app>_<action>` |
@@ -184,7 +185,7 @@ MCP ends in one answer; a command that fails where it cannot tell whether
 serve ran the action answers `Unreachable`. The command exits 0 for success, 2
 for `NotStarted` and 1 otherwise.
 
-## A page's client
+## A UI's client
 
 ```ts
 import { connect } from '@epicenter/app/client';
@@ -339,14 +340,14 @@ a rule here in the same pull request as the code.
   Refused: plain values beside Results; a `kind` field beside the error.
 - **An action names each of its errors with fixed text, and an error's
   fields are JSON; any error may carry `next`, a command that helps.** A
-  name that is any string turns every name a page sees into `string`, so
+  name that is any string turns every name a UI sees into `string`, so
   `defineAction` refuses it, and a `cause` that is an `Error` arrives as
   `{}`, so it stays inside the action. Epicenter names no refusal for an
   app: a check the input schema can make belongs there, and answers
   `NotStarted`.
   Refused: a ready-made `Refused` name (removed: a caller could not tell
   one refusal from another, and catch-alls hid crashes behind it); an
-  `errors` list on each action (a page already infers the names from
+  `errors` list on each action (a UI already infers the names from
   `run`, and an agent reads the description).
 - **An action call is a function call: serve keeps no run history, receipt
   or replay, only one line on stderr when a call ends (app, action, duration,
@@ -362,10 +363,10 @@ a rule here in the same pull request as the code.
   scheduler, which left each failed run as two partial records.
 - **A caller leaving aborts `run`'s `signal` and stops nothing by itself.**
   A command interrupted after starting a send must not cancel it halfway,
-  and a stream of changes must stop listening once its page is gone. The
+  and a stream of changes must stop listening once its UI is gone. The
   action decides which it is.
   Refused: aborting every action when its caller leaves; a stream that ends
-  on a timer, which repeats the page's own reconnect deadline on the server.
+  on a timer, which repeats the UI's own reconnect deadline on the server.
 - **An action writes files and makes no commit and takes no lock. No
   command commits, stages or pushes.** Only the person or their agent knows
   why a change was made, and a commit per action could sweep in someone
@@ -381,7 +382,7 @@ a rule here in the same pull request as the code.
 
 ### Running the home
 
-- **Serve gzips action answers and pages, and sends `data/` byte for byte.**
+- **Serve gzips action answers and UIs, and sends `data/` byte for byte.**
   One action can answer with a whole document, and an app should not compress
   its own answers. Each write is flushed, so an update still arrives live.
   Refused: compressing inside an action, which hides it from every other app;
@@ -411,8 +412,8 @@ a rule here in the same pull request as the code.
   Refused: `epicenter service` with a LaunchAgent; a parent process that
   restarts serve.
 - **Serve answers `/apps/<app>/` from `apps/<app>/ui/dist/` for an app in
-  `epicenter.ts`.** Guards refuse a page's calls from another origin, so a
-  page must come from serve itself, and the folder is found by the layout
+  `epicenter.ts`.** Guards refuse a UI's calls from another origin, so a
+  UI must come from serve itself, and the folder is found by the layout
   every home already has.
   Refused: a setting naming each app's folder.
 - **Serve has one owner, so it checks only what stops a website in that
@@ -421,10 +422,10 @@ a rule here in the same pull request as the code.
   sandbox on `/data`, and the saved copy `PUT` keeps. Each stopped a demonstrated
   attack or protects bytes Git does not hold.
   Refused: file name rules; refusing links the owner made; body size caps;
-  `Sec-Fetch-Site`, which blocked links to the owner's own pages.
+  `Sec-Fetch-Site`, which blocked links to the owner's own UIs.
 - **`PUT /data/<path>` replaces a file and keeps the old one in
   `.epicenter/replaced/<time>/<path>`. Everything else about a file is an
-  action's.** A retry just works and a page needs no conflict prompt, while a
+  action's.** A retry just works and a UI needs no conflict prompt, while a
   bad upload over media Git does not hold can still be undone by copying it
   back. Epicenter knows paths, and each app owns its layout, so
   `records.delete` removes only the `.md`.
@@ -438,7 +439,7 @@ a rule here in the same pull request as the code.
   itself.
   Refused: sending `AGENTS.md` as MCP instructions.
 - **An action marked `mcp: false` is left out of MCP and refused there by
-  name; the command and a page still call it.** Some actions act as the
+  name; the command and a UI still call it.** Some actions act as the
   owner, such as sending a message or changing Gmail, and an agent that
   reaches your Epicenter only through MCP, such as one on a phone, must not
   run them. An agent with a shell on your computer can still run the command, so

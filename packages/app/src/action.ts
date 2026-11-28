@@ -1,7 +1,7 @@
 /**
- * An action: one thing a person, an agent or a page can ask a home to do,
+ * An action: one thing a person, an agent or a UI can ask a home to do,
  * with a description and the fields of its input. Every action is written
- * with `defineAction`; nothing is reachable from the command, MCP or a page
+ * with `defineAction`; nothing is reachable from the command, MCP or a UI
  * unless an action exposes it.
  *
  * ```ts
@@ -26,7 +26,7 @@
  * loses nothing. An action is also an async function, so a test awaits it
  * directly; a direct call skips the input check serve makes.
  *
- * `run`'s third argument, `signal`, aborts when the caller is gone: the page
+ * `run`'s third argument, `signal`, aborts when the caller is gone: the UI
  * closed, the command was stopped, or the connection dropped. An action that
  * ignores it runs to the end, so leaving never stops one by itself. One that
  * only reports, such as a stream of changes, returns when it aborts:
@@ -84,7 +84,7 @@ export type Action<In = any, Out = unknown, U = any> = ((
 	 * Serve checks a call with it, and MCP and the listing show it.
 	 */
 	readonly input: ObjectSchema;
-	/** `false` when MCP leaves the action out; the command and a page still call it. */
+	/** `false` when MCP leaves the action out; the command and a UI still call it. */
 	readonly mcp?: false;
 };
 
@@ -93,9 +93,9 @@ export type ActionUpdate<A> =
 	A extends Action<never, unknown, infer U> ? U : never;
 
 /**
- * What an action may return or report: JSON, so a page receives the type
+ * What an action may return or report: JSON, so a UI receives the type
  * `run` returned. A property may be `undefined`; it arrives absent, which a
- * page reads the same way. Nothing else may be: return `null` for nothing.
+ * UI reads the same way. Nothing else may be: return `null` for nothing.
  */
 type Returned =
 	| string
@@ -140,7 +140,7 @@ type ActionDef<
 	readonly input: I;
 	/**
 	 * `false` to leave the action out of MCP, for one an agent must not
-	 * call, such as sending as the owner. The command and a page still call
+	 * call, such as sending as the owner. The command and a UI still call
 	 * it. Anything that can send HTTP to serve can still call it, so this
 	 * keeps the action from an agent that reaches your Epicenter only
 	 * through MCP.
@@ -166,7 +166,7 @@ export function defineAction<
 >(
 	def: ActionDef<I, Out, U>,
 ): string extends ErrorName<Out>
-	? // When an error name is any string, every name a page sees would be
+	? // When an error name is any string, every name a UI sees would be
 		// `string`. The app listing this gets the sentence in its type error,
 		// written inline so TypeScript prints it rather than an alias.
 		{

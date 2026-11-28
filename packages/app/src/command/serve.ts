@@ -1,11 +1,11 @@
 /**
- * `epicenter serve`: one address for the command, agents and pages.
+ * `epicenter serve`: one address for the command, agents and UIs.
  *
  * ```txt
  * POST /                        MCP, one tool per action
  * GET  /actions/                every app, action, description and input schema
  * POST /actions/<app>/<action>  run one action; the body is its input as JSON
- * GET  /apps/<app>/<file>       the app's built page, from apps/<app>/ui/dist/
+ * GET  /apps/<app>/<file>       the app's built UI, from apps/<app>/ui/dist/
  * GET  /data/<path>             a file's bytes
  * PUT  /data/<path>             a file's bytes, keeping any previous version
  * ```
@@ -17,7 +17,7 @@
  * is a 200 with that one line, a `NotStarted`; any other status means serve
  * did not take the call. An action runs to its end whether or not its
  * caller stays, and serve writes one line to stderr when it ends. Answers and
- * pages are gzipped for a caller that accepts it; a file under `data/` is sent
+ * UIs are gzipped for a caller that accepts it; a file under `data/` is sent
  * byte for byte.
  *
  * Serve has no sign-in: it listens only on 127.0.0.1, and another device
@@ -210,8 +210,8 @@ function inside(root: string, encoded: string) {
 	}
 }
 
-/** Another site may not frame a page and trick a click. */
-const PAGE_HEADERS = { 'content-security-policy': "frame-ancestors 'self'" };
+/** Another site may not frame a UI and trick a click. */
+const UI_HEADERS = { 'content-security-policy': "frame-ancestors 'self'" };
 
 /**
  * What a file under `data/` is sent with. A saved HTML file must not run on
@@ -308,7 +308,7 @@ function createRoute(
 			if (method !== 'GET' && method !== 'HEAD')
 				return methodNotAllowed('GET, HEAD');
 			if (!isName(app) || !Object.hasOwn(program.apps, app)) return notFound();
-			// A page's URLs are relative, so they resolve only under the slash.
+			// A UI's URLs are relative, so they resolve only under the slash.
 			if (action === undefined)
 				return new Response(null, {
 					status: 308,
@@ -316,7 +316,7 @@ function createRoute(
 				});
 			const dist = join(folder, 'apps', app, 'ui', 'dist');
 			const file = pathname.slice(`/apps/${app}/`.length) || 'index.html';
-			return sendFile(inside(dist, file), PAGE_HEADERS);
+			return sendFile(inside(dist, file), UI_HEADERS);
 		}
 		if (first === 'data') {
 			const path = inside(

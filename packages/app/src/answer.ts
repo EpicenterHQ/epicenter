@@ -5,7 +5,7 @@
  * threw) and `Unreachable` (the outcome is unknown). The data handles answer
  * `Misfit`, `Exists` and `Missing`. Any other name is the action's own, made
  * with `defineErrors`, so a caller tells one failure from another by name.
- * This module uses only web APIs, so a page's bundle can carry it.
+ * This module uses only web APIs, so a UI's bundle can carry it.
  */
 import {
 	defineErrors,

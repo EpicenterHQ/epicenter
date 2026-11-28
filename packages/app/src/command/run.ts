@@ -1,7 +1,7 @@
 /**
  * Answer one call in serve: find `action` of `app` in the program, check
  * `input` against its schema, run it, and answer what it did. The route, MCP
- * and every caller through them share this one call, so a page, an agent and
+ * and every caller through them share this one call, so a UI, an agent and
  * the command get the one input check. Nothing is filled: an
  * absent key stays absent, and an action's `run` writes its own default.
  *

@@ -432,7 +432,7 @@ test('serve that cannot listen answers NotStarted, never a throw', async () => {
 	expect(refused.error?.message).toContain('serve could not listen');
 });
 
-test("an app's page is its built files, and nothing outside them", async () => {
+test("an app's UI is its built files, and nothing outside them", async () => {
 	const { folder, request } = await setup();
 	const dist = join(folder, 'apps', 'writing', 'ui', 'dist');
 	await mkdir(join(dist, 'fonts'), { recursive: true });
@@ -440,13 +440,13 @@ test("an app's page is its built files, and nothing outside them", async () => {
 	await writeFile(join(dist, 'fonts', 'my font.woff2'), 'font');
 	await writeFile(join(folder, 'apps', 'writing', 'secret.txt'), 'outside');
 
-	const page = await request('/apps/writing/');
-	expect(page.status).toBe(200);
-	expect(page.headers.get('content-type')).toContain('text/html');
-	expect(page.headers.get('content-security-policy')).toContain(
+	const index = await request('/apps/writing/');
+	expect(index.status).toBe(200);
+	expect(index.headers.get('content-type')).toContain('text/html');
+	expect(index.headers.get('content-security-policy')).toContain(
 		"frame-ancestors 'self'",
 	);
-	expect(await page.text()).toBe('<h1>Writing</h1>');
+	expect(await index.text()).toBe('<h1>Writing</h1>');
 	expect(
 		await (await request('/apps/writing/fonts/my%20font.woff2')).text(),
 	).toBe('font');
@@ -532,7 +532,7 @@ test("an action's signal aborts when a caller over the network abandons the call
 	}
 });
 
-test('pages are gzipped, while images, data files and callers without gzip get exact bytes', async () => {
+test('UIs are gzipped, while images, data files and callers without gzip get exact bytes', async () => {
 	const { folder, request } = await setup();
 	const dist = join(folder, 'apps', 'writing', 'ui', 'dist');
 	await mkdir(dist, { recursive: true });

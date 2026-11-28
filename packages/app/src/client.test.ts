@@ -61,7 +61,7 @@ afterAll(async () => {
 
 const epicenter = connect<typeof home>({ url: server.url.href });
 
-test('a page calls an action by property, hearing its updates, and gets a Result', async () => {
+test('a UI calls an action by property, hearing its updates, and gets a Result', async () => {
 	const steps: string[] = [];
 	const added = await epicenter.flights.add(
 		{ id: 'tokyo', to: 'Tokyo' },
@@ -71,13 +71,13 @@ test('a page calls an action by property, hearing its updates, and gets a Result
 	expect(added.data?.to).toBe('Tokyo');
 	const idea = await epicenter.flights.idea({ id: 'tokyo' });
 	expect(idea).toEqual(Ok({ to: 'Tokyo', nights: undefined }));
-	// JSON drops the undefined field, which a page reads the same way.
+	// JSON drops the undefined field, which a UI reads the same way.
 	expect(idea.data && Object.hasOwn(idea.data, 'nights')).toBe(false);
 	const missing = await epicenter.flights.idea({ id: 'osaka' });
 	expect(missing.error?.name).toBe('Missing');
 });
 
-test('serve refusing the input reaches the page as NotStarted', async () => {
+test('serve refusing the input reaches the UI as NotStarted', async () => {
 	// @ts-expect-error: idea needs an id.
 	const refused = await epicenter.flights.idea({});
 	expect(refused.error?.name).toBe('NotStarted');
