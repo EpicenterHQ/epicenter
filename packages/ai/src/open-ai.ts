@@ -1,9 +1,6 @@
-import { createLogger } from 'wellcrafted/logger';
 import { AiError, createClient, type TranscriptionRequest } from './client.js';
 import { type CustomEndpoints, isCustomEndpoints } from './custom-endpoints.js';
 import type { Endpoint, EndpointModel, Source } from './endpoint.js';
-
-const log = createLogger('ai');
 
 /** A model as an app sees it: what it can do, and where it runs. */
 export type Model = EndpointModel & { endpoint: string; source: Source };
@@ -73,7 +70,7 @@ export function openAi(entries: readonly EndpointEntry[]) {
 				if (seen.has(endpoint.id)) {
 					if (!reported.has(endpoint.id)) {
 						reported.add(endpoint.id);
-						log.error(
+						reportError(
 							new Error(
 								`Two endpoints share the id "${endpoint.id}"; the later is left out.`,
 							),
@@ -129,7 +126,8 @@ export function openAi(entries: readonly EndpointEntry[]) {
 				try {
 					listener();
 				} catch (cause) {
-					log.error(new Error('An AI models subscriber failed.', { cause }));
+					// Nobody awaits a subscriber, so the program hears what it threw.
+					reportError(cause);
 				}
 			};
 			const held = new Map<Endpoint, (() => void) | undefined>();

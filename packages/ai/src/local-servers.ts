@@ -1,4 +1,3 @@
-import { createLogger } from 'wellcrafted/logger';
 import { createClient } from './client.js';
 import {
 	type Endpoint,
@@ -6,8 +5,6 @@ import {
 	guessCapabilities,
 	openAiCompatible,
 } from './endpoint.js';
-
-const log = createLogger('ai/local-servers');
 
 /** The model servers people run on their own computer, at their default ports. */
 const SERVERS = [
@@ -64,7 +61,8 @@ export function localServers({
 				try {
 					listener();
 				} catch (cause) {
-					log.error(new Error('A local server subscriber failed.', { cause }));
+					// Nobody awaits a subscriber, so the program hears what it threw.
+					reportError(cause);
 				}
 			}
 		}

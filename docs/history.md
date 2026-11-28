@@ -904,3 +904,19 @@ See: 6c7212ba88, ADR-0894, ADR-0786.
 Reopen if: apps must be shared between homes or written by people who do not trust each other; the old containers isolated each app as if a stranger wrote it.
 
 See: 7a4aa065bc, ADR-0971, #2766.
+
+## 2026-11-27 · license · refused · Epicenter earns from support, and sells no other license
+
+The licensing strategy kept an empty proprietary tier, a license template for it, and a plan for revenue from hosted services, so that the owner could one day sell code under terms other than the AGPL. No hosted service is planned, and the income goal is a modest one that paid support for people and teams can meet. We refused commercial licensing and the CLA it would need, accepted outside contributions under the AGPL with no CLA, and deleted the strategy, the financial sustainability note, and the license index; the root `LICENSE` became the AGPL text itself. We gave up the option to sell a non-AGPL license for code that outside contributors wrote.
+
+Reopen if: a named company wants to pay for a license other than the AGPL, or a hosted service is planned; either needs a CLA for contributions made from then on.
+
+See: b2b8cc62c7, 815ec68bdc.
+
+## 2026-11-27 · sharing · adopted · Everyone who can reach an Epicenter can do everything in it
+
+An Epicenter was described as one person's, and how people would share one was left open. We decided that an Epicenter is shared by whoever can reach its computer, with no sign-in, roles, or per-person permissions inside it. A team whose members trust each other equally shares one; people who need separate access each run their own, and an agent can connect to several. We gave up permissions within one Epicenter.
+
+Reopen if: a group needs different access for different people and running separate Epicenters cannot serve it.
+
+See: b2b8cc62c7.

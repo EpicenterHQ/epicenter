@@ -23,7 +23,7 @@ import { ActionError, type Answer } from '../answer.ts';
 import type { Listing } from '../call.ts';
 import { errorText } from './output.ts';
 import type { Program } from './program.ts';
-import { answerCall } from './run.ts';
+import { callAction } from './run.ts';
 
 /** An answer as an MCP tool result. A failure's text is what the command prints on stderr. */
 function toolResult(answer: Answer) {
@@ -74,11 +74,9 @@ export function createMcp(program: Program, listing: Listing) {
 				const [app = '', ...action] = params.name.split('_');
 				// As on the route, a throw that escapes the call is still an answer
 				// rather than a protocol error.
-				const answer = await answerCall(
+				const answer = await callAction(
 					program,
-					app,
-					action.join('_'),
-					params.arguments ?? {},
+					{ app, action: action.join('_'), input: params.arguments ?? {} },
 					{ signal: extra.signal },
 				).catch((cause: unknown) =>
 					ActionError.Threw({ message: extractErrorMessage(cause) }),

@@ -60,7 +60,7 @@ test('a single owner exits 0 in the documented line format', () => {
 	const { code, out } = run('asymmetric wins');
 
 	expect(code).toBe(0);
-	expect(out).toBe('asymmetric wins -> product-collapse/SKILL.md\n');
+	expect(out).toBe('asymmetric wins -> rethink/SKILL.md\n');
 });
 
 test('--explain annotates without changing the line prefix or exit code', () => {
@@ -68,9 +68,7 @@ test('--explain annotates without changing the line prefix or exit code', () => 
 	const explained = run('--explain', 'asymmetric wins');
 
 	expect(explained.code).toBe(plain.code);
-	expect(explained.out).toBe(
-		'asymmetric wins -> product-collapse/SKILL.md [claims]\n',
-	);
+	expect(explained.out).toBe('asymmetric wins -> rethink/SKILL.md [claims]\n');
 });
 
 test('a single claimant with no collision exits 0', () => {

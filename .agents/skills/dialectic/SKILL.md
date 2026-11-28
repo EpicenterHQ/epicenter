@@ -1,6 +1,6 @@
 ---
 name: dialectic
-description: Develop a shared understanding of an unsettled idea and how it could take shape. Use when the user explicitly requests standalone dialectic, or another active skill invokes it within its task.
+description: Develop a shared understanding of an unsettled idea and how it could take shape. Use when the user explicitly requests standalone dialectic or a clean slate, or another active skill invokes it within its task.
 ---
 
 # Dialectic
@@ -15,6 +15,10 @@ words. They might recognize the idea itself or point to a phrase,
 example, or detail they want to keep. Carry those choices through the
 intent, the vision, and the work that follows. Preserve selected wording
 exactly.
+
+Show an articulation in the form its audience will meet it: a sentence in
+its paragraph, a title on its cover, a frame at phone size. When there is a
+real choice, put the options together and vary only that choice.
 
 Work through the steps in order. If the user picks an idea, exact phrase,
 or example, carry it forward while the step is still open. Move to the
@@ -38,6 +42,14 @@ enough for the user to picture what would be different and how it would
 work in practice. Show an example, draft, or mockup when it would help
 them judge the vision. Revise it in response to what they tell you. Use
 the confirmed vision to guide the work.
+
+When an existing feature list would crowd the vision, set it aside. Start
+from one thing the user should be able to do and show the simplest design
+that does it from start to finish. When an earlier choice or a new
+assumption starts shaping the design, say where it came from. Walk through
+the same concrete example with the choice kept and with it reversed, and
+let the user judge. Bring back one capability at a time when a concrete use
+case shows what's missing.
 
 ## Work backward and build
 

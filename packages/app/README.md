@@ -257,9 +257,9 @@ the clock. A serve that finishes starting at 8:00 or later waits until tomorrow
 for the example above.
 
 Bare `epicenter` lists each schedule and its next occurrence. Serve calls
-scheduled actions through the usual action runner, which logs each answer
-to stderr. After a restart the clock considers future occurrences. Apps
-own any saved results.
+scheduled actions through the usual action runner. Nobody receives a
+scheduled run's answer, so the runner's line on stderr is its only trace. After a restart the
+clock considers future occurrences. Apps own any saved results.
 
 ## Not built yet
 
@@ -349,10 +349,17 @@ a rule here in the same pull request as the code.
   `errors` list on each action (a page already infers the names from
   `run`, and an agent reads the description).
 - **An action call is a function call: serve keeps no run history, receipt
-  or replay, only one line on stderr when a run ends (app, action, outcome,
-  duration; never the input or the result).** What must outlast a call goes
-  in a file, and progress goes through `run`'s second argument.
-  Refused: `async function*` and `yield`; an ambient `report()`.
+  or replay, only one line on stderr when a call ends (app, action, duration,
+  and the error's name and message, or `null`; never the input or the
+  result).** What must outlast a call goes in a file, and progress goes
+  through `run`'s second argument. The line records that a call happened, so
+  it is `info` whether or not the answer was an error, and a call that never
+  began has one too. It is complete by itself because a scheduled run has no
+  caller to hold the error. The message is whatever the action wrote or
+  threw, so an action keeps private data out of its error messages.
+  Refused: `async function*` and `yield`; an ambient `report()`; the whole
+  error on the line, whose fields can hold a record; a second line from the
+  scheduler, which left each failed run as two partial records.
 - **A caller leaving aborts `run`'s `signal` and stops nothing by itself.**
   A command interrupted after starting a send must not cancel it halfway,
   and a stream of changes must stop listening once its page is gone. The

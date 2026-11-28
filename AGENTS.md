@@ -51,7 +51,7 @@ Skip this for stable basics and repo-local patterns already documented in skills
 
 ## Library logging
 
-Do not use direct `console.*` in library code. Use `wellcrafted/logger`. Biome refuses `console` under `packages/*/src`; a deliberate call there carries a `biome-ignore` with its reason.
+Library code returns a failure or hands it to the program; the `logging` skill says how. Biome refuses `console` under `packages/*/src`; a deliberate call there carries a `biome-ignore` with its reason.
 
 ## Planning docs and decisions
 
@@ -143,5 +143,4 @@ Keep procedures in skills; keep `AGENTS.md` to routing.
 | editing `AGENTS.md`, `CLAUDE.md`, or a skill | `skills-and-instructions` |
 | substantial implemented changes, or changes with caller or contract consequences, including refactors, public API changes, and clean breaks | `post-implementation-review`, before final handoff or staging |
 | continuous indirection-reduction work | `code-collapse` directly |
-| during review: an unresolved ownership, lifecycle, API, package-boundary, clean-break, or compatibility-refusal question | borrow `rethink`'s reasoning |
-| during review: whether refusing a small promise (an asymmetric win) removes disproportionate complexity | borrow `product-collapse`'s reasoning |
+| during review: an unresolved ownership, lifecycle, API, package-boundary, clean-break, or compatibility-refusal question, or whether refusing a small promise (an asymmetric win) removes disproportionate complexity | borrow `rethink`'s reasoning |

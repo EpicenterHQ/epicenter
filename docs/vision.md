@@ -207,12 +207,14 @@ author's apps and do not ship here.
   adds each item worth keeping with `epicenter tasks add`, and completes it in
   Todoist. Todoist stays near empty, and Tasks is the list.
 - **A recording on a plane.** Whispering on your laptop records, transcribes,
-  and pastes with no network, and keeps each recording as files in its own
+  and copies the text with no network, and keeps each recording as files in its own
   folder ([Whispering's decisions](../apps/whispering/README.md#the-folder)). It
-  needs no Epicenter and no account. Point that folder at `~/Epicenter/data` and
-  declare data keys for its notes, and an agent can read the notes and
-  transcripts as records. Audio waits for files beside a record, which is not
-  built yet.
+  needs no Epicenter and no account.
+- **A voice reply from the phone.** You record a reply in an app's page. Its
+  action hands the audio to a speech program installed on your computer, run
+  as a command with the file's path, and reads the text it prints. Handy does
+  this today; Whispering's command line is planned
+  ([the backlog](../BACKLOG.md#finish-the-whispering-rewrite)).
 
 ## The pieces
 
@@ -232,8 +234,9 @@ author's apps and do not ship here.
 An app is code in your Epicenter. Everything else is a program or a
 service, and it works without an Epicenter. Data crosses only through an
 app's actions or through files in the documented shape: Mail brings Gmail in,
-and Gmail does nothing. Whispering is a program; pointed at `data/`, it needs
-no app, only data keys.
+and Gmail does nothing. Whispering is a program. An action can also run a
+program as a command and read what it prints. The program still knows nothing
+about your Epicenter.
 
 "Epicenter" is the place, and `epicenter` is its command. "Server" means
 someone else's computer, and "hosted" means someone else runs it; yours is your

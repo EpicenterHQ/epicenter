@@ -57,7 +57,7 @@ the uncertainty; a local change can still be the best result.
 Before moving coordination to another owner, ask whether simpler product
 behavior could make it unnecessary. Trace the mechanism to the promise it
 serves; consider whether a native control or simpler workflow could do the job
-without the repair. Use [product-collapse](../product-collapse/SKILL.md) to
+without the repair. Use [rethink](../rethink/SKILL.md) to
 develop changes to the experience with the user, making gains and losses
 explicit. Carry forward product choices already settled in the conversation.
 
