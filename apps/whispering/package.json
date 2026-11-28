@@ -20,13 +20,12 @@
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"@sveltejs/adapter-static": "4.0.1",
-		"@sveltejs/kit": "3.4.0",
+		"@sveltejs/adapter-static": "catalog:",
+		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
-		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"svelte-sonner": "catalog:",
@@ -37,6 +36,7 @@
 	"dependencies": {
 		"@epicenter/app": "workspace:*",
 		"@epicenter/recorder": "workspace:*",
+		"@epicenter/transcription": "workspace:*",
 		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"@tauri-apps/plugin-clipboard-manager": "2.5.0",

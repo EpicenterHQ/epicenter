@@ -1,9 +1,4 @@
 {
-	"extends": "../../../../tsconfig.dom.json",
-	"compilerOptions": {
-		"types": ["bun"],
-		"noUnusedLocals": true,
-		"noUnusedParameters": true
-	},
+	"extends": "../../../../tsconfig.base.json",
 	"include": ["guest-js"]
 }

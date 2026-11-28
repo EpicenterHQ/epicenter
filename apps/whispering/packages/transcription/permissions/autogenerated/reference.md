@@ -36,58 +36,6 @@ Denies the download_model command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-transcription:allow-get-unload-policy`
-
-</td>
-<td>
-
-Enables the get_unload_policy command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-get-unload-policy`
-
-</td>
-<td>
-
-Denies the get_unload_policy command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:allow-list-inference-models`
-
-</td>
-<td>
-
-Enables the list_inference_models command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-list-inference-models`
-
-</td>
-<td>
-
-Denies the list_inference_models command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `epicenter-transcription:allow-list-models`
 
 </td>
@@ -159,58 +107,6 @@ Enables the reveal_model command without any pre-configured scope.
 <td>
 
 Denies the reveal_model command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:allow-set-unload-policy`
-
-</td>
-<td>
-
-Enables the set_unload_policy command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-set-unload-policy`
-
-</td>
-<td>
-
-Denies the set_unload_policy command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:allow-transcribe-audio`
-
-</td>
-<td>
-
-Enables the transcribe_audio command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-transcription:deny-transcribe-audio`
-
-</td>
-<td>
-
-Denies the transcribe_audio command without any pre-configured scope.
 
 </td>
 </tr>

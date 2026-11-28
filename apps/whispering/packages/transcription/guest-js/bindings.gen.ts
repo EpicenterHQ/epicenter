@@ -33,53 +33,9 @@ export const commands = {
 	 *  Async so a slow file manager call never blocks the main thread.
 	 */
 	revealModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("plugin:epicenter-transcription|reveal_model", { modelId })),
-	/**  When the app drops the resident model. */
-	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("plugin:epicenter-transcription|get_unload_policy"),
-	/**
-	 *  Set the unload policy. Rust owns the idle clock because a backgrounded
-	 *  webview timer throttles exactly when idle eviction must fire,
-	 *  and owns the value too, so it applies from launch instead of waiting for a
-	 *  webview to reconcile it. It carries no model identity.
-	 */
-	setUnloadPolicy: (policy: UnloadPolicy) => typedError<null, SettingsError>(__TAURI_INVOKE("plugin:epicenter-transcription|set_unload_policy", { policy })),
-	/**  Installed native models available to explicit inference. No cache paths escape. */
-	listInferenceModels: () => __TAURI_INVOKE<InferenceModel[]>("plugin:epicenter-transcription|list_inference_models"),
-	/**
-	 *  Transcribe audio the page holds (an upload, such as a dictation's blob),
-	 *  base64-encoded, with the exact catalog model `model_id`. The bytes are
-	 *  decoded where they arrive; nothing is written to disk. Audio that is not
-	 *  base64 is an `AudioReadError`; then an unknown or uninstalled model is
-	 *  refused before the audio is decoded, and audio that does not decode is an
-	 *  `AudioReadError`.
-	 */
-	transcribeAudio: (modelId: string, audio: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_audio", { modelId, audio, hints })),
 };
 
 /* Types */
-/**
- *  Which advisory hints the run actually applied.
- *
- *  Built from the exact values handed to the runtime, never from what the caller
- *  asked for. A hint the model cannot take is reported as not applied
- *  rather than dropped in silence, so a caller can tell its user that the prompt
- *  or language did not reach the recognizer instead of wondering why it had no
- *  effect.
- */
-export type AppliedHints = {
-	/**
-	 *  The language hint the runtime received. `None` means it autodetected:
-	 *  the caller asked for autodetect, sent nothing, or asked for a language
-	 *  the model does not take.
-	 */
-	language: string | null,
-	/**
-	 *  Whether the caller's initial prompt reached the runtime. `false` when the
-	 *  caller sent none, or the model does not accept one (Whisper does;
-	 *  the Parakeet family does not).
-	 */
-	initialPrompt: boolean,
-};
-
 export type CatalogError = { name: "UnknownModel"; message: string } | { name: "Busy"; message: string } | { name: "DownloadingElsewhere"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string } | { name: "RemoveFailed"; message: string };
 
 /**
@@ -96,11 +52,6 @@ export type DownloadProgress = {
 	bytesReceived: number | null,
 	/**  Grand total bytes for the whole model (sum of the catalog file sizes). */
 	totalBytes: number | null,
-};
-
-export type InferenceModel = {
-	id: string,
-	installed: boolean,
 };
 
 /**
@@ -122,57 +73,6 @@ export type ModelInfo = {
 	recommended: boolean,
 	downloaded: boolean,
 };
-
-/**  Why a setting could not be made durable. */
-export type SettingsError = { name: "SaveFailed"; message: string };
-
-export type TranscriptionError = { name: "AudioReadError"; message: string } |
-/**
- *  The requested model is unknown, or not installed on this computer.
- *
- *  Failing here changes nothing. No model is downloaded, substituted, or
- *  routed to the cloud on the caller's behalf.
- */
-{ name: "ModelUnavailable"; message: string } |
-/**
- *  Operational: the model is installed but the runtime could not load it.
- *  Kept distinct so a broken install does not read as a missing model.
- */
-{ name: "ModelLoadError"; message: string } |
-/**  Operational: inference itself failed. */
-{ name: "TranscriptionError"; message: string };
-
-/**
- *  The advisory hints an application supplies with a transcription. The model
- *  is named separately. Language and prompt remain application-owned; nothing
- *  here is retained between calls.
- */
-export type TranscriptionHints = {
-	language?: string | null,
-	initialPrompt?: string | null,
-};
-
-/**
- *  What a transcription request produced.
- *
- *  Two outcomes because there are two honest stories. `transcribed` names the
- *  exact model that produced the text, which makes accidental substitution
- *  detectable: it is always the requested model.
- *  `empty-audio` reports that nothing ran, and deliberately carries no model and
- *  no applied hints, because claiming either would be claiming an inference that
- *  never happened.
- */
-export type TranscriptionOutcome = { outcome: "transcribed"; text: string; modelId: string; applied: AppliedHints } |
-/**  The audio held no samples, so no model was loaded and no hint applied. */
-{ outcome: "empty-audio" };
-
-/**
- *  How long after the last transcription the resident model should be dropped.
- *
- *  `Immediately` is enforced synchronously at the end of each transcription;
- *  timed variants are enforced by the background idle watcher.
- */
-export type UnloadPolicy = "never" | "immediately" | "after_5_minutes" | "after_30_minutes";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

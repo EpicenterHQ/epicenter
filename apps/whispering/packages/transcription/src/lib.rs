@@ -1,11 +1,14 @@
 //! Native local transcription for a standalone desktop app.
 //!
-//! `transcribe_audio` takes the audio the page uploads, decoded where it
-//! arrives; the page's `localSpeech()` answers every transcription that way.
-//! Model settings belong to the installing app and live in its local data
-//! directory's `local/`, `app_local_data_dir()/local/local-transcription.json`,
-//! where the app keeps what belongs to this computer alone; model
-//! files stay in the shared Hugging Face cache.
+//! The page administers models through the plugin's commands: list, download,
+//! remove, and show in the file manager. Transcription has no command. The
+//! installing app reads the audio in a command of its own and transcribes
+//! through `model_cache(app)?.transcribe_bytes(..)`, so the page never
+//! carries audio. The unload policy belongs to the installing app and lives
+//! in its local data directory's `local/`,
+//! `app_local_data_dir()/local/local-transcription.json`, where the app keeps
+//! what belongs to this computer alone; model files stay in the shared
+//! Hugging Face cache.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -72,10 +75,6 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             download_model,
             remove_model::<tauri::Wry>,
             reveal_model::<tauri::Wry>,
-            get_unload_policy::<tauri::Wry>,
-            set_unload_policy::<tauri::Wry>,
-            list_inference_models,
-            transcribe_audio::<tauri::Wry>,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }

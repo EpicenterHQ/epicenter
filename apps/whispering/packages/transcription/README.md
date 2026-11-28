@@ -2,14 +2,15 @@
 
 `tauri-plugin-epicenter-transcription` gives a standalone desktop app local
 transcription: a curated model catalog, downloads into the shared Hugging Face
-cache, the app's unload-policy setting, audio decoding, and a
-resident inference cache over transcribe.cpp (whisper.cpp). Only apps that
-transcribe depend on it; other standalone apps stay free of transcribe-cpp and
-model downloads.
+cache, an unload policy, audio decoding, and a resident inference cache over
+transcribe.cpp (whisper.cpp). Whispering installs it. The recorder plugin's
+tests use its decoder (`audio::decode_to_pcm16k_mono`).
 
-Its TypeScript package, `@epicenter/transcription`, lives in `guest-js/`
-beside it, so the capability keeps its TypeScript and its Rust plugin in
-one directory.
+The page gets four commands, all model administration. Transcription has no
+command: the app's own Rust reads the audio and calls the model cache.
+
+`guest-js/bindings.gen.ts` holds the generated TypeScript for those commands.
+The `@epicenter/transcription` package exports that file and nothing else.
 
 ## Installing
 
@@ -40,8 +41,10 @@ app keeps what belongs to this computer alone: the directory named
 by the app's bundle identifier, so `so.epicenter.whispering` and
 `so.epicenter.whispering.dev` keep separate choices. Plugin setup fails if that
 directory cannot be resolved. The file holds the unload policy, which is
-device-local and never synchronizes. The app names its model on every request
-and keeps that choice with its other model choices.
+device-local and never synchronizes. No command reads or sets it: a missing
+file means the default, five minutes after the last transcription, and a host
+changes it through `model_cache(app)?.settings()`. The app names its model on
+every transcription and keeps that choice in its own settings.
 
 Model files live in the shared Hugging Face cache (`~/.cache/huggingface/hub`,
 or under `HF_HOME`), so every app and Hugging Face tool on the machine reuses
@@ -52,25 +55,29 @@ pointer that resolves to the model's bytes and the blob, and keeps a file of
 the same name with other bytes. A model still downloading is refused `Busy`.
 `reveal_model` shows a model's folder.
 
-## Transcribing an upload
+## Transcribing
 
-`transcribe_audio(model_id, audio, hints)` transcribes audio the page holds,
-a dictation's blob or a recording read from the folder, sent as base64. It
-is the one way a page transcribes. Rust decodes the bytes where they arrive
-and writes nothing to disk. Each call is checked in this order, and every
-refusal is a typed `TranscriptionError`:
+The app transcribes from a command of its own, so the page never carries
+audio. Whispering's `transcribe_local` (`src-tauri/src/local.rs`) reads a
+recording's file and calls:
+
+```rust
+let cache = tauri_plugin_epicenter_transcription::model_cache(&app)?;
+let outcome = cache.transcribe_bytes(model_id, &audio, hints)?;
+```
+
+`transcribe_bytes` blocks, so call it from `spawn_blocking`. It decodes the
+bytes in memory and writes nothing to disk. It checks each call in this
+order, and every refusal is a `TranscriptionError`:
 
 | Check | Refusal |
 | --- | --- |
-| `audio` is base64 | `AudioReadError` |
 | `model_id` is a catalog model installed on this machine | `ModelUnavailable` |
 | The bytes decode as audio | `AudioReadError` |
 
-The model is always named explicitly, and an unknown or uninstalled model is
-refused before the bytes are decoded. Audio with no samples answers `empty-audio` without
-loading a model. Otherwise the answer is `transcribed`, naming the exact model
-that ran and which hints it applied. The inference job owns its input until it
-finishes, even when the page stops waiting.
+The caller names the model on every call. Audio with no samples answers
+`EmptyAudio` without loading a model. Otherwise the answer is `Transcribed`,
+naming the model that ran and which hints it applied.
 
 ## Memory
 
@@ -78,7 +85,7 @@ A transcription loads its model on first use, replacing any other resident
 model, and keeps it resident under the unload policy. Removing a model unloads
 it first, once a transcription with it finishes.
 
-Downloads work the same way: stopping the page's wait does not stop the
+A download outlives its waiter: stopping the page's wait does not stop the
 transfer. The worker keeps a per-model reservation until it finishes, so another
 request for that model is answered `Busy`; another process holding the cache's
 blob lock is answered `DownloadingElsewhere`.
@@ -88,50 +95,20 @@ blob lock is answered `DownloadingElsewhere`.
 There is no default grant. Every permission is prefixed
 `epicenter-transcription:`; grant each window only what it uses.
 
-| Use | Command | Permission |
-| --- | --- | --- |
-| Inference | `list_inference_models` | `allow-list-inference-models` |
-| Inference | `transcribe_audio` | `allow-transcribe-audio` |
-| Administration | `list_models` | `allow-list-models` |
-| Administration | `download_model` | `allow-download-model` |
-| Administration | `remove_model` | `allow-remove-model` |
-| Administration | `reveal_model` | `allow-reveal-model` |
-| Administration | `get_unload_policy`, `set_unload_policy` | `allow-get-unload-policy`, `allow-set-unload-policy` |
+| Command | Permission |
+| --- | --- |
+| `list_models` | `allow-list-models` |
+| `download_model` | `allow-download-model` |
+| `remove_model` | `allow-remove-model` |
+| `reveal_model` | `allow-reveal-model` |
 
-## TypeScript package
+## TypeScript bindings
 
-`@epicenter/transcription` exports:
-
-- `.`: `localSpeech()`, described last below, which is null outside a
-  Tauri window (`isTauri()`), and `openLocalSpeech()`, the same
-  handle for code that runs only in one. The generated bindings load with
-  the first command, so a browser never loads them.
-- `./bindings`: the generated bindings (`commands` and the wire types), such
-  as `commands.listInferenceModels()` and
-  `commands.transcribeAudio(modelId, audio, hints)`.
-- `./local-models`: `createLocalModels({ speech, choice })`, a per-mount
-  controller over a `localSpeech()` handle and the app's choice of model
-  (`LocalModelChoice`). Rust owns downloads; the page owns only its intent to
-  use a model after one finishes. Stopping waiting withdraws that intent and
-  calls nothing native.
-- `./local-model-administration`: `LocalModelAdministration.svelte`, the model
-  settings card built on `createLocalModels` and `@epicenter/ui`: download,
-  use, show the folder, remove, and the unload policy. It takes the app's
-  handle (`speech`, the same value its `openAi` merges, so a download reaches
-  the picker) and its choice (`choice`); without a handle it opens its own
-  (`openLocalSpeech()`). It is a
-  Tauri window's view: an app shows it where `localSpeech()` is not null.
-- `localSpeech()` (the `.` export): this app's transcribe.cpp as an
-  `@epicenter/ai` endpoint ([Whispering's model rules](../../README.md#models-and-keys)), or `null` in a browser. Its `fetch`
-  answers `audio/transcriptions` and `models` in-process through
-  `transcribe_audio` (the uploaded `file`) and `list_inference_models`. A
-  refusal answers as an OpenAI error whose `code` is the `TranscriptionError`
-  name. The handle carries what the OpenAI vocabulary cannot say:
-  `catalog()` lists every model with whether it is downloaded;
-  `download(id)` and `remove(id)` run `download_model` and `remove_model`
-  and then list the models again; `reveal(id)` shows a model's folder;
-  `unloadPolicy()` and `setUnloadPolicy(policy)` read and set when an idle
-  model leaves memory. It imports only types from `@epicenter/ai`.
+`@epicenter/transcription/bindings` is `guest-js/bindings.gen.ts`: `commands`
+(`listModels`, `downloadModel`, `removeModel`, `revealModel`) and the wire
+types `ModelInfo`, `DownloadProgress`, and `CatalogError`. Whispering calls
+them from `src/lib/platform/local/native.ts`. A command that can refuse
+answers `{ data, error }`, where `error` is the `CatalogError`.
 
 ## Building an app
 
@@ -147,13 +124,15 @@ From the repository root:
 
 ```sh
 cargo test -p tauri-plugin-epicenter-transcription
-bun run --cwd packages/transcription typecheck
-bun run --cwd packages/transcription test
+bun run --cwd apps/whispering/packages/transcription typecheck
 ```
 
 The Rust tests check the bindings are fresh, drive the commands through
 Tauri's mock runtime, and decode the audio fixtures. To regenerate
 `guest-js/bindings.gen.ts` after changing a command or wire type, run
 `TRANSCRIPTION_WRITE_BINDINGS=1 cargo test -p tauri-plugin-epicenter-transcription bindings`.
+The commands are listed twice, in `src/command_names.rs` and in
+`specta_builder` in `src/lib.rs`. The build script reads the first list and
+rewrites `permissions/`; delete the permission file of a command you remove.
 Real inference is an ignored test that needs `EPICENTER_NATIVE_AUDIO` and an
 already cached Whisper Tiny model; it never downloads.

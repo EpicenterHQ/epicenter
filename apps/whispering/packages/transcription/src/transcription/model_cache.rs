@@ -75,7 +75,8 @@ impl ModelCache {
         }
     }
 
-    /// The host-owned settings store, for model administration commands.
+    /// The host-owned settings store, for a host that reads or sets the
+    /// unload policy.
     pub fn settings(&self) -> &LocalTranscriptionSettings {
         &self.settings
     }
